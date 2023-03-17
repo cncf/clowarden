@@ -1,0 +1,42 @@
+[package]
+name = "clowarden"
+description = "CLOWarden"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.67"
+
+[dependencies]
+anyhow = "1.0.69"
+askama = "0.12.0"
+async-trait = "0.1.66"
+axum = { version = "0.6.11", features = ["macros"] }
+base64 = "0.21.0"
+clap = { version = "4.1.8", features = ["derive"] }
+config = "0.13.3"
+futures = "0.3.27"
+hmac = "0.12.1"
+hex = "0.4.3"
+octorust = "0.3.0"
+pem = "1.1.1"
+serde = { version = "1.0.156", features = ["derive"] }
+serde_json = "1.0.94"
+serde_yaml = "0.9.19"
+sha2 = "0.10.6"
+thiserror = "1.0.39"
+tokio = { version = "1.26.0", features = [
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
+tower = "0.4.13"
+tower-http = { version = "0.4.0", features = ["trace"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json"] }
+validator = { version = "0.16.0", features = ["derive"] }
+
+[dev-dependencies]
+mockall = "0.11.3"
