@@ -2,10 +2,12 @@
 
 #### ‼️ Some errors were found validating the configuration files
 
+***
+
+Errors:
+
 {% for err in errors %}
-```
-{{ "{:?}"|format(err) }}
-```
+- {{ "{:?}"|format(err) -}}
 {% endfor %}
 
 ***

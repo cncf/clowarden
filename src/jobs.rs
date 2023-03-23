@@ -26,7 +26,7 @@ pub(crate) enum Job {
     /// A reconcile job verifies if the desired state as described in the
     /// configuration files matches the current state in the external services,
     /// applying the necessary changes. This work is delegated on plugins, one
-    /// for each of the external services. It can be trigger periodically or
+    /// for each of the external services. It can be triggered periodically or
     /// manually from a pull request. When it's triggered from a pull request,
     /// any feedback will be published to it in the form of comments.
     Reconcile(Option<PullRequestData>),

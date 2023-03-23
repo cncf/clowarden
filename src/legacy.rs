@@ -1,9 +1,8 @@
-use crate::{directory::*, github::DynGH};
-use anyhow::{Context, Result};
+use crate::{directory::*, github::DynGH, multierror::MultiError};
+use anyhow::{Context, Error, Result};
 use config::Config;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use validator::Validate;
 
 /// Legacy configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -14,7 +13,13 @@ pub(crate) struct Cfg {
 
 impl Cfg {
     /// Get legacy configuration.
-    pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Cfg> {
+    pub(crate) async fn get(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        ref_: Option<&str>,
+    ) -> Result<Cfg, MultiError> {
+        let mut merr = MultiError::new();
+
         // Get sheriff configuration
         let path = &cfg
             .get_string("config.legacy.sheriff.permissionsPath")
@@ -23,8 +28,12 @@ impl Cfg {
             .get_file_content(path, ref_)
             .await
             .context("error getting sheriff permissions file")?;
-        let sheriff: sheriff::Cfg = serde_yaml::from_str(&content)?;
-        sheriff.validate()?;
+        let sheriff: sheriff::Cfg = serde_yaml::from_str(&content)
+            .map_err(Error::new)
+            .context("error parsing sheriff permissions file")?;
+        if let Err(sheriff_merr) = sheriff.validate() {
+            merr.join(sheriff_merr);
+        }
 
         // Get CNCF people configuration
         let path = &cfg.get_string("config.legacy.cncf.peoplePath").unwrap();
@@ -32,9 +41,16 @@ impl Cfg {
             .get_file_content(path, ref_)
             .await
             .context("error getting cncf people file")?;
-        let cncf: cncf::Cfg = serde_json::from_str(&content)?;
-        cncf.validate()?;
+        let cncf: cncf::Cfg = serde_json::from_str(&content)
+            .map_err(Error::new)
+            .context("error parsing cncf people file")?;
+        if let Err(cncf_merr) = cncf.validate() {
+            merr.join(cncf_merr);
+        }
 
+        if merr.has_errors() {
+            return Err(merr);
+        }
         Ok(Cfg { sheriff, cncf })
     }
 }
@@ -64,8 +80,7 @@ impl From<Cfg> for Directory {
                 let image_url = match u.image {
                     Some(v) if v.starts_with("https://") => Some(v),
                     Some(v) => Some(format!(
-                        "https://github.com/cncf/people/raw/main/images/{}",
-                        v
+                        "https://github.com/cncf/people/raw/main/images/{v}",
                     )),
                     None => None,
                 };
@@ -95,40 +110,88 @@ impl From<Cfg> for Directory {
 }
 
 pub(crate) mod sheriff {
+    use crate::{
+        directory::{TeamName, UserName},
+        multierror::MultiError,
+    };
+    use anyhow::{format_err, Result};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
-    use validator::Validate;
-
-    /// Type alias to represent a team name.
-    pub(crate) type TeamName = String;
-
-    /// Type alias to represent a username.
-    pub(crate) type UserName = String;
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file
-    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub(crate) struct Cfg {
-        #[validate]
         pub teams: Vec<Team>,
-        #[validate]
         pub repositories: Vec<Repository>,
     }
 
+    impl Cfg {
+        /// Validate configuration.
+        pub(crate) fn validate(&self) -> Result<(), MultiError> {
+            let mut merr = MultiError::new();
+
+            let mut teams_seen = vec![];
+            for (i, team) in self.teams.iter().enumerate() {
+                // Define id to be used in subsequent error messages. When
+                // available, it'll be the team name. Otherwise we'll use its
+                // index on the list.
+                let id = if team.name.is_empty() {
+                    format!("{}", i)
+                } else {
+                    team.name.clone()
+                };
+
+                // Name must be provided
+                if team.name.is_empty() {
+                    merr.push(format_err!("team[{id}: name must be provided"));
+                }
+
+                // No duplicate config per team
+                if !team.name.is_empty() {
+                    if teams_seen.contains(&&team.name) {
+                        merr.push(format_err!(
+                            "team[{id}]: duplicate config for team {}",
+                            &team.name
+                        ));
+                        continue;
+                    }
+                    teams_seen.push(&team.name);
+                }
+
+                // At least one maintainer required
+                if team.maintainers.is_empty() {
+                    merr.push(format_err!("team[{id}]: must have at least one maintainer"));
+                }
+
+                // Users should be either a maintainer or a member, but not both
+                for maintainer in &team.maintainers {
+                    if team.members.contains(maintainer) {
+                        merr.push(format_err!(
+                            "team[{id}]: {maintainer} must be either a maintainer or a member, but not both"
+                        ));
+                    }
+                }
+            }
+
+            if merr.has_errors() {
+                return Err(merr);
+            }
+            Ok(())
+        }
+    }
+
     /// Team configuration.
-    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub(crate) struct Team {
-        #[validate(length(min = 1))]
         pub name: String,
-        #[validate(length(min = 1))]
         pub maintainers: Vec<UserName>,
         pub members: Vec<UserName>,
     }
 
     /// Repository configuration.
-    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub(crate) struct Repository {
-        #[validate(length(min = 1))]
         pub name: String,
         pub external_collaborators: Option<HashMap<UserName, Role>>,
         pub teams: Option<HashMap<TeamName, Role>>,
@@ -158,22 +221,40 @@ pub(crate) mod sheriff {
 }
 
 pub(crate) mod cncf {
+    use crate::multierror::MultiError;
+    use anyhow::{format_err, Result};
     use serde::{Deserialize, Serialize};
-    use validator::Validate;
 
     /// CNCF people configuration.
     /// https://github.com/cncf/people/tree/main#listing-format
-    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     #[serde(transparent)]
     pub(crate) struct Cfg {
-        #[validate]
         pub people: Vec<User>,
     }
 
+    impl Cfg {
+        /// Validate configuration.
+        pub(crate) fn validate(&self) -> Result<(), MultiError> {
+            let mut merr = MultiError::new();
+
+            for (i, user) in self.people.iter().enumerate() {
+                // Name must be provided
+                if user.name.is_empty() {
+                    merr.push(format_err!("user[{}]: name must be provided", i));
+                }
+            }
+
+            if merr.has_errors() {
+                return Err(merr);
+            }
+            Ok(())
+        }
+    }
+
     /// User profile.
-    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub(crate) struct User {
-        #[validate(length(min = 1))]
         pub name: String,
         pub bio: Option<String>,
         pub company: Option<String>,

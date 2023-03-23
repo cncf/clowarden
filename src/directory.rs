@@ -8,11 +8,11 @@ use std::{
     sync::Arc,
 };
 
-/// Type alias to represent a username.
-type UserName = String;
-
 /// Type alias to represent a team name.
-type TeamName = String;
+pub(crate) type TeamName = String;
+
+/// Type alias to represent a username.
+pub(crate) type UserName = String;
 
 /// Directory configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -27,11 +27,11 @@ impl Directory {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
             let legacy_cfg = legacy::Cfg::get(cfg, gh, ref_)
                 .await
-                .context("error getting legacy configuration")?;
+                .context("invalid configuration (legacy format)")?;
             return Ok(Self::from(legacy_cfg));
         }
         Err(format_err!(
-            "only legacy configuration supported at the moment"
+            "only configuration in legacy format supported at the moment"
         ))
     }
 
@@ -156,37 +156,32 @@ impl Display for Change {
                 if !team.maintainers.is_empty() {
                     write!(f, "\n\t- Maintainers")?;
                     for user_name in &team.maintainers {
-                        write!(f, "\n\t\t- **{}**", user_name)?;
+                        write!(f, "\n\t\t- **{user_name}**")?;
                     }
                 }
                 if !team.members.is_empty() {
                     write!(f, "\n\t- Members")?;
                     for user_name in &team.members {
-                        write!(f, "\n\t\t- **{}**", user_name)?;
+                        write!(f, "\n\t\t- **{user_name}**")?;
                     }
                 }
                 Ok(())
             }
-            Self::TeamRemoved(team_name) => write!(f, "- **{}** has been *removed*", team_name),
+            Self::TeamRemoved(team_name) => write!(f, "- **{team_name}** has been *removed*"),
             Self::TeamMaintainerAdded(team_name, user_name) => write!(
                 f,
-                "- **{}** is now a maintainer of **{}**",
-                user_name, team_name
+                "- **{user_name}** is now a maintainer of **{team_name}**",
             ),
             Self::TeamMaintainerRemoved(team_name, user_name) => write!(
                 f,
-                "- **{}** is no longer a maintainer of **{}**",
-                user_name, team_name
+                "- **{user_name}** is no longer a maintainer of **{team_name}**",
             ),
-            Self::TeamMemberAdded(team_name, user_name) => write!(
-                f,
-                "- **{}** is now a member of **{}**",
-                user_name, team_name
-            ),
+            Self::TeamMemberAdded(team_name, user_name) => {
+                write!(f, "- **{user_name}** is now a member of **{team_name}**",)
+            }
             Self::TeamMemberRemoved(team_name, user_name) => write!(
                 f,
-                "- **{}** is no longer a member of **{}**",
-                user_name, team_name
+                "- **{user_name}** is no longer a member of **{team_name}**",
             ),
         }
     }
