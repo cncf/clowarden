@@ -16,7 +16,7 @@
 {%- for (plugin_name, plugin_changes) in plugins_changes -%}
 ### {{ plugin_name }} plugin
 {% for change in plugin_changes %}
-- {{ change }}
+{{ change }}
 {%- endfor %}
 {%- endfor %}
 

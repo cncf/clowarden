@@ -252,57 +252,78 @@ impl fmt::Display for Change {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Change::RepositoryAdded(repo) => {
-                write!(f, "repository **{}** has been *added*", repo.name)?;
+                write!(
+                    f,
+                    "- repository **{}** has been *added* (visibility: **{}**)",
+                    repo.name,
+                    repo.visibility.clone().unwrap_or_default()
+                )?;
+                if let Some(teams) = &repo.teams {
+                    if !teams.is_empty() {
+                        write!(f, "\n\t- Teams")?;
+                        for (team_name, role) in teams.iter() {
+                            write!(f, "\n\t\t- **{team_name}**: *{role}*")?;
+                        }
+                    }
+                }
+                if let Some(collaborators) = &repo.external_collaborators {
+                    if !collaborators.is_empty() {
+                        write!(f, "\n\t- External collaborators")?;
+                        for (user_name, role) in collaborators.iter() {
+                            write!(f, "\n\t\t- **{user_name}**: *{role}*")?;
+                        }
+                    }
+                }
             }
             Change::RepositoryRemoved(repo_name) => {
-                write!(f, "repository **{}** has been *removed*", repo_name)?;
+                write!(f, "- repository **{}** has been *removed*", repo_name)?;
             }
             Change::RepositoryTeamAdded(repo_name, team_name, role) => {
                 write!(
                     f,
-                    "team **{}** has been *added* to repository **{}** (role: **{}**)",
+                    "- team **{}** has been *added* to repository **{}** (role: **{}**)",
                     team_name, repo_name, role
                 )?;
             }
             Change::RepositoryTeamRemoved(repo_name, team_name) => {
                 write!(
                     f,
-                    "team **{}** has been *removed* from repository **{}**",
+                    "- team **{}** has been *removed* from repository **{}**",
                     team_name, repo_name
                 )?;
             }
             Change::RepositoryTeamRoleUpdated(repo_name, team_name, role) => {
                 write!(
                     f,
-                    "team **{}** role in repository **{}** has been *updated* to **{}**",
+                    "- team **{}** role in repository **{}** has been *updated* to **{}**",
                     team_name, repo_name, role
                 )?;
             }
             Change::RepositoryCollaboratorAdded(repo_name, user_name, role) => {
                 write!(
                     f,
-                    "user **{}** is now an external collaborator (role: **{}**) of repository **{}**",
+                    "- user **{}** is now an external collaborator (role: **{}**) of repository **{}**",
                     user_name, role, repo_name
                 )?;
             }
             Change::RepositoryCollaboratorRemoved(repo_name, user_name) => {
                 write!(
                     f,
-                    "user **{}** is no longer an external collaborator of repository **{}**",
+                    "- user **{}** is no longer an external collaborator of repository **{}**",
                     user_name, repo_name
                 )?;
             }
             Change::RepositoryCollaboratorRoleUpdated(repo_name, user_name, role) => {
                 write!(
                     f,
-                    "user **{}** role in repository **{}** has been updated to **{}**",
+                    "- user **{}** role in repository **{}** has been updated to **{}**",
                     user_name, repo_name, role
                 )?;
             }
             Change::RepositoryVisibilityUpdated(repo_name, visibility) => {
                 write!(
                     f,
-                    "repository **{}** visibility has been updated to **{}**",
+                    "- repository **{}** visibility has been updated to **{}**",
                     repo_name, visibility
                 )?;
             }
