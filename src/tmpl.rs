@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-
 use crate::{
     directory::Change,
     plugins::{PluginCfgChanges, PluginName},
 };
 use anyhow::Error;
 use askama::Template;
+use std::collections::HashMap;
 
 /// Template for the validation failed comment.
 #[derive(Debug, Template)]

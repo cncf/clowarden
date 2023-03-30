@@ -139,7 +139,7 @@ impl Cfg {
                     user_role(&repos_new, repo_name, user_name),
                 ))
             }
-            for user_name in collaborators_old.difference(&teams_new) {
+            for user_name in collaborators_old.difference(&collaborators_new) {
                 changes.push(Change::RepositoryCollaboratorRemoved(
                     repo_name.to_string(),
                     user_name.to_string(),
