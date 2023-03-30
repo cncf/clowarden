@@ -1,12 +1,13 @@
-use crate::{github::DynGH, legacy};
+use crate::github::DynGH;
 use anyhow::{format_err, Context, Result};
 use config::Config;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Display,
     sync::Arc,
 };
+
+mod legacy;
 
 /// Type alias to represent a team name.
 pub(crate) type TeamName = String;
@@ -23,11 +24,11 @@ pub(crate) struct Directory {
 
 impl Directory {
     /// Create a new directory instance.
-    pub(crate) async fn new(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+    pub(crate) async fn new(cfg: Arc<Config>, gh: DynGH, config_ref: Option<&str>) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
-            let legacy_cfg = legacy::Cfg::get(cfg, gh, ref_)
+            let legacy_cfg = legacy::Cfg::get(cfg, gh, config_ref)
                 .await
-                .context("invalid configuration (legacy format)")?;
+                .context("invalid directory configuration")?;
             return Ok(Self::from(legacy_cfg));
         }
         Err(format_err!(
@@ -35,7 +36,7 @@ impl Directory {
         ))
     }
 
-    /// Returns the changes detected on the directory provided.
+    /// Returns the changes detected on the new directory provided.
     pub(crate) fn changes(&self, new: &Directory) -> Vec<Change> {
         let mut changes = vec![];
 
@@ -103,6 +104,62 @@ impl Directory {
     }
 }
 
+impl From<legacy::Cfg> for Directory {
+    /// Create a new directory instance from the legacy configuration.
+    fn from(cfg: legacy::Cfg) -> Self {
+        // Teams
+        let teams = cfg
+            .sheriff
+            .teams
+            .into_iter()
+            .map(|t| Team {
+                name: t.name,
+                maintainers: t.maintainers,
+                members: t.members,
+                ..Default::default()
+            })
+            .collect();
+
+        // Users
+        let users = if let Some(cncf) = cfg.cncf {
+            cncf.people
+                .into_iter()
+                .map(|u| {
+                    let image_url = match u.image {
+                        Some(v) if v.starts_with("https://") => Some(v),
+                        Some(v) => Some(format!(
+                            "https://github.com/cncf/people/raw/main/images/{v}",
+                        )),
+                        None => None,
+                    };
+                    User {
+                        full_name: u.name,
+                        email: u.email,
+                        image_url,
+                        languages: u.languages,
+                        bio: u.bio,
+                        website: u.website,
+                        company: u.company,
+                        pronouns: u.pronouns,
+                        location: u.location,
+                        slack_id: u.slack_id,
+                        linkedin_url: u.linkedin,
+                        twitter_url: u.twitter,
+                        github_url: u.github,
+                        wechat_url: u.wechat,
+                        youtube_url: u.youtube,
+                        ..Default::default()
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        Directory { teams, users }
+    }
+}
+
 /// Team configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Team {
@@ -146,43 +203,4 @@ pub(crate) enum Change {
     TeamMaintainerRemoved(TeamName, UserName),
     TeamMemberAdded(TeamName, UserName),
     TeamMemberRemoved(TeamName, UserName),
-}
-
-impl Display for Change {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TeamAdded(team) => {
-                write!(f, "- **{}** has been *added*", team.name)?;
-                if !team.maintainers.is_empty() {
-                    write!(f, "\n\t- Maintainers")?;
-                    for user_name in &team.maintainers {
-                        write!(f, "\n\t\t- **{user_name}**")?;
-                    }
-                }
-                if !team.members.is_empty() {
-                    write!(f, "\n\t- Members")?;
-                    for user_name in &team.members {
-                        write!(f, "\n\t\t- **{user_name}**")?;
-                    }
-                }
-                Ok(())
-            }
-            Self::TeamRemoved(team_name) => write!(f, "- **{team_name}** has been *removed*"),
-            Self::TeamMaintainerAdded(team_name, user_name) => write!(
-                f,
-                "- **{user_name}** is now a maintainer of **{team_name}**",
-            ),
-            Self::TeamMaintainerRemoved(team_name, user_name) => write!(
-                f,
-                "- **{user_name}** is no longer a maintainer of **{team_name}**",
-            ),
-            Self::TeamMemberAdded(team_name, user_name) => {
-                write!(f, "- **{user_name}** is now a member of **{team_name}**",)
-            }
-            Self::TeamMemberRemoved(team_name, user_name) => write!(
-                f,
-                "- **{user_name}** is no longer a member of **{team_name}**",
-            ),
-        }
-    }
 }

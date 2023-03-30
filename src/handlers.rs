@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use tracing::{error, instrument, trace};
+use tracing::{error, instrument};
 
 /// Router's state.
 #[derive(Clone, FromRef)]
@@ -90,7 +90,7 @@ async fn event(
         }
         Err(EventError::UnsupportedEvent) => return Ok(()),
     };
-    trace!(?event, "webhook event received");
+    // trace!(?event, "webhook event received");
 
     // Take action on event when needed
     match event {

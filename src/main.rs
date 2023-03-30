@@ -1,9 +1,12 @@
-use crate::github::GHApi;
+use crate::{
+    github::GHApi,
+    plugins::{DynPlugin, PluginName},
+};
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{Config, File};
 use futures::future;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{
     signal,
     sync::{broadcast, mpsc},
@@ -15,8 +18,8 @@ mod directory;
 mod github;
 mod handlers;
 mod jobs;
-mod legacy;
 mod multierror;
+mod plugins;
 mod tmpl;
 
 #[derive(Debug, Parser)]
@@ -43,7 +46,7 @@ async fn main() -> Result<()> {
 
     // Setup logging
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "clowarden=debug,tower_http=debug")
+        std::env::set_var("RUST_LOG", "clowarden=trace,tower_http=debug")
     }
     let s = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env());
     match cfg.get_string("log.format").as_deref() {
@@ -54,10 +57,19 @@ async fn main() -> Result<()> {
     // Setup GitHub client
     let gh = Arc::new(GHApi::new(cfg.clone()).context("error setting up github client")?);
 
+    // Setup plugins
+    let mut plugins: HashMap<PluginName, DynPlugin> = HashMap::new();
+    if cfg.get_bool("plugins.github.enabled").unwrap_or_default() {
+        plugins.insert(
+            "GitHub",
+            Box::new(plugins::github::Plugin::new(cfg.clone(), gh.clone())),
+        );
+    }
+
     // Setup and launch jobs workers
     let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(cfg.clone(), gh.clone());
+    let jobs_handler = jobs::Handler::new(cfg.clone(), gh.clone(), plugins);
     let jobs_scheduler = jobs::Scheduler::new();
     let jobs_workers_done = future::join_all([
         jobs_handler.start(jobs_rx, stop_tx.subscribe()),

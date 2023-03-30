@@ -1,14 +1,16 @@
 use crate::{
     directory::Directory,
     github::{self, DynGH},
+    multierror::MultiError,
+    plugins::{DynPlugin, PluginCfgChanges, PluginName},
     tmpl,
 };
-use anyhow::Result;
+use anyhow::{Error, Result};
 use askama::Template;
 use config::Config;
 use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
@@ -42,12 +44,17 @@ pub(crate) enum Job {
 pub(crate) struct Handler {
     cfg: Arc<Config>,
     gh: DynGH,
+    plugins: HashMap<PluginName, DynPlugin>,
 }
 
 impl Handler {
     /// Create a new handler instance.
-    pub(crate) fn new(cfg: Arc<Config>, gh: DynGH) -> Self {
-        Self { cfg, gh }
+    pub(crate) fn new(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        plugins: HashMap<PluginName, DynPlugin>,
+    ) -> Self {
+        Self { cfg, gh, plugins }
     }
 
     /// Spawn a new task to process jobs received on the jobs channel. The task
@@ -89,41 +96,71 @@ impl Handler {
     /// Validation job handler.
     #[instrument(fields(pr_number = pr.number), skip_all, err(Debug))]
     async fn handle_validation_job(&self, pr: PullRequestData) -> Result<()> {
-        // Validate configuration changes
-        let directory_head =
+        let mut merr = MultiError::new(None);
+
+        // Directory configuration validation
+        let directory_changes =
             match Directory::new(self.cfg.clone(), self.gh.clone(), Some(&pr.head.ref_)).await {
-                Ok(directory) => directory,
+                Ok(directory_head) => {
+                    match Directory::new(self.cfg.clone(), self.gh.clone(), None).await {
+                        Ok(directory_base) => Some(directory_base.changes(&directory_head)),
+                        Err(_) => {
+                            // TODO: invalid config in base ref
+                            // This should not happen, but handle anyway
+                            None
+                        }
+                    }
+                }
                 Err(err) => {
-                    // Validation failed, post results
-                    let comment_body = tmpl::ValidationFailed::new(&err).render()?;
-                    self.gh.post_comment(pr.number, &comment_body).await?;
-                    let check_body = github::new_checks_create_request(
-                        pr.head.sha,
-                        Some(JobStatus::Completed),
-                        Some(ChecksCreateRequestConclusion::Failure),
-                        "The configuration changes proposed are not valid",
-                    );
-                    self.gh.create_check_run(&check_body).await?;
-                    return Err(err);
+                    merr.push(err);
+                    None
                 }
             };
 
-        // Configuration changes are valid: calculate changes between the head
-        // and base refs and post the results
-        let changes = match Directory::new(self.cfg.clone(), self.gh.clone(), None).await {
-            Ok(directory_base) => directory_base.changes(&directory_head),
-            Err(_) => vec![],
+        // Plugins configuration validation
+        let mut plugins_changes: HashMap<PluginName, PluginCfgChanges> = HashMap::new();
+        for (plugin_name, plugin) in &self.plugins {
+            match plugin.get_config_changes(&pr.head.ref_).await {
+                Ok(changes) => {
+                    plugins_changes.insert(plugin_name, changes);
+                }
+                Err(err) => merr.push(err),
+            }
+        }
+
+        // Post validation results
+        let errors_found = merr.contains_errors();
+        let err = Error::from(merr);
+        let (comment_body, check_body) = match errors_found {
+            true => {
+                let comment_body = tmpl::ValidationFailed::new(&err).render()?;
+                let check_body = github::new_checks_create_request(
+                    pr.head.sha,
+                    Some(JobStatus::Completed),
+                    Some(ChecksCreateRequestConclusion::Failure),
+                    "The configuration changes proposed are not valid",
+                );
+                (comment_body, check_body)
+            }
+            false => {
+                let comment_body =
+                    tmpl::ValidationSucceeded::new(&directory_changes, &plugins_changes)
+                        .render()?;
+                let check_body = github::new_checks_create_request(
+                    pr.head.sha,
+                    Some(JobStatus::Completed),
+                    Some(ChecksCreateRequestConclusion::Success),
+                    "The configuration changes proposed are valid",
+                );
+                (comment_body, check_body)
+            }
         };
-        let comment_body = tmpl::ValidationSucceeded::new(&changes).render()?;
         self.gh.post_comment(pr.number, &comment_body).await?;
-        let check_body = github::new_checks_create_request(
-            pr.head.sha,
-            Some(JobStatus::Completed),
-            Some(ChecksCreateRequestConclusion::Success),
-            "The configuration changes proposed are valid",
-        );
         self.gh.create_check_run(&check_body).await?;
 
+        if errors_found {
+            return Err(err);
+        }
         Ok(())
     }
 }

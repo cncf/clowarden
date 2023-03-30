@@ -5,10 +5,7 @@
 ***
 
 Errors:
-
-{% for err in errors %}
-- {{ "{:?}"|format(err) -}}
-{% endfor %}
+{{ err|format_error }}
 
 ***
 
