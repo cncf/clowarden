@@ -94,6 +94,15 @@ mod filters {
                     "- **{user_name}** is no longer a member of team **{team_name}**",
                 )?;
             }
+            directory::Change::UserAdded(full_name) => {
+                write!(s, "- user **{full_name}** has been *added*")?;
+            }
+            directory::Change::UserRemoved(full_name) => {
+                write!(s, "- user **{full_name}** has been *removed*")?;
+            }
+            directory::Change::UserUpdated(full_name) => {
+                write!(s, "- user **{full_name}** details have been *updated*")?;
+            }
         }
 
         Ok(s)

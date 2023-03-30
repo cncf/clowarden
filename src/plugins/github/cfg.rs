@@ -85,7 +85,7 @@ impl Cfg {
         for repo_name in repos_new.keys() {
             if repos_added.contains(repo_name) {
                 // When a repo is added the change includes the full repo, so
-                // we don't need to track additional changes for it
+                // we don't want to track additional changes for it
                 continue;
             }
 

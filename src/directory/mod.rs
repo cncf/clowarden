@@ -15,6 +15,9 @@ pub(crate) type TeamName = String;
 /// Type alias to represent a username.
 pub(crate) type UserName = String;
 
+/// Type alias to represent a user full name.
+pub(crate) type UserFullName = String;
+
 /// Directory configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Directory {
@@ -61,7 +64,7 @@ impl Directory {
         for team_name in teams_new.keys() {
             if teams_added.contains(team_name) {
                 // When a team is added the change includes the full team, so
-                // we don't want another change for maintainer or member changes
+                // we don't want to track additional changes for it
                 continue;
             }
 
@@ -97,6 +100,38 @@ impl Directory {
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
+            }
+        }
+
+        // Users
+        let users_old: HashMap<&UserFullName, &User> =
+            self.users.iter().map(|u| (&u.full_name, u)).collect();
+        let users_new: HashMap<&UserFullName, &User> =
+            new.users.iter().map(|u| (&u.full_name, u)).collect();
+
+        // Users added/removed
+        let users_fullnames_old: HashSet<&UserFullName> = users_old.keys().copied().collect();
+        let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
+        let mut users_added: Vec<&UserFullName> = vec![];
+        for full_name in users_fullnames_new.difference(&users_fullnames_old) {
+            changes.push(Change::UserAdded(full_name.to_string()));
+            users_added.push(full_name);
+        }
+        for full_name in users_fullnames_old.difference(&users_fullnames_new) {
+            changes.push(Change::UserRemoved(full_name.to_string()));
+        }
+
+        // Users updated
+        for (full_name, user_new) in &users_new {
+            if users_added.contains(full_name) {
+                // When a user is added the change includes the full user, so
+                // we don't want to track additional changes for it
+                continue;
+            }
+
+            let user_old = &users_old[full_name];
+            if user_new != user_old {
+                changes.push(Change::UserUpdated(full_name.to_string()));
             }
         }
 
@@ -195,7 +230,7 @@ pub(crate) struct User {
 /// Represents a change in the directory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Change {
     TeamAdded(Team),
     TeamRemoved(TeamName),
@@ -203,4 +238,7 @@ pub(crate) enum Change {
     TeamMaintainerRemoved(TeamName, UserName),
     TeamMemberAdded(TeamName, UserName),
     TeamMemberRemoved(TeamName, UserName),
+    UserAdded(UserFullName),
+    UserRemoved(UserFullName),
+    UserUpdated(UserFullName),
 }
