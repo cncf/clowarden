@@ -188,7 +188,7 @@ pub(crate) struct User {
     pub github_url: Option<String>,
     pub wechat_url: Option<String>,
     pub youtube_url: Option<String>,
-    pub languages: Vec<String>,
+    pub languages: Option<Vec<String>>,
     pub annotations: HashMap<String, String>,
 }
 
