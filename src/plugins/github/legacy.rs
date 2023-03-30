@@ -33,6 +33,7 @@ pub(crate) mod sheriff {
         fn validate(&self) -> Result<()> {
             let mut merr = MultiError::new(Some("invalid github plugin configuration".to_string()));
 
+            let mut repos_seen = vec![];
             for (i, repo) in self.repositories.iter().enumerate() {
                 // Define id to be used in subsequent error messages. When
                 // available, it'll be the repo name. Otherwise we'll use its
@@ -46,6 +47,18 @@ pub(crate) mod sheriff {
                 // Name must be provided
                 if repo.name.is_empty() {
                     merr.push(format_err!("repo[{id}]: name must be provided"));
+                }
+
+                // No duplicate config per repo
+                if !repo.name.is_empty() {
+                    if repos_seen.contains(&&repo.name) {
+                        merr.push(format_err!(
+                            "repo[{id}]: duplicate config for repo {}",
+                            &repo.name
+                        ));
+                        continue;
+                    }
+                    repos_seen.push(&repo.name);
                 }
             }
 
