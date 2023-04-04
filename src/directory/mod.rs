@@ -144,6 +144,16 @@ impl Directory {
 
         changes
     }
+
+    /// Get user identified by the user name provided.
+    pub(crate) fn get_user(&self, user_name: &str) -> Option<&User> {
+        self.users.iter().find(|u| {
+            if let Some(entry_user_name) = &u.user_name {
+                return entry_user_name == user_name;
+            }
+            false
+        })
+    }
 }
 
 impl From<legacy::Cfg> for Directory {
