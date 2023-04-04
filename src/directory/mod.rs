@@ -1,6 +1,8 @@
 use crate::github::DynGH;
 use anyhow::{format_err, Context, Result};
 use config::Config;
+use lazy_static::lazy_static;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -8,6 +10,11 @@ use std::{
 };
 
 mod legacy;
+
+lazy_static! {
+    static ref GITHUB_URL: Regex = Regex::new("^https://github.com/(?P<handle>[^/]+)/?$")
+        .expect("expr in GITHUB_URL to be valid");
+}
 
 /// Type alias to represent a team name.
 pub(crate) type TeamName = String;
@@ -160,6 +167,11 @@ impl From<legacy::Cfg> for Directory {
             cncf.people
                 .into_iter()
                 .map(|u| {
+                    let user_name = u
+                        .github
+                        .as_ref()
+                        .and_then(|github_url| GITHUB_URL.captures(github_url))
+                        .map(|captures| captures["handle"].to_string());
                     let image_url = match u.image {
                         Some(v) if v.starts_with("https://") => Some(v),
                         Some(v) => Some(format!(
@@ -169,6 +181,7 @@ impl From<legacy::Cfg> for Directory {
                     };
                     User {
                         full_name: u.name,
+                        user_name,
                         email: u.email,
                         image_url,
                         languages: u.languages,
