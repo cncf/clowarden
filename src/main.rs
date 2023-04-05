@@ -1,6 +1,6 @@
 use crate::{
     github::GHApi,
-    plugins::{DynPlugin, PluginName},
+    services::{DynServiceHandler, ServiceName},
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -19,7 +19,7 @@ mod github;
 mod handlers;
 mod jobs;
 mod multierror;
-mod plugins;
+mod services;
 mod tmpl;
 
 #[derive(Debug, Parser)]
@@ -57,19 +57,19 @@ async fn main() -> Result<()> {
     // Setup GitHub client
     let gh = Arc::new(GHApi::new(cfg.clone()).context("error setting up github client")?);
 
-    // Setup plugins
-    let mut plugins: HashMap<PluginName, DynPlugin> = HashMap::new();
-    if cfg.get_bool("plugins.github.enabled").unwrap_or_default() {
-        plugins.insert(
+    // Setup services handlers
+    let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
+    if cfg.get_bool("services.github.enabled").unwrap_or_default() {
+        services.insert(
             "GitHub",
-            Box::new(plugins::github::Plugin::new(cfg.clone(), gh.clone())),
+            Box::new(services::github::Handler::new(cfg.clone(), gh.clone())),
         );
     }
 
     // Setup and launch jobs workers
     let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(cfg.clone(), gh.clone(), plugins);
+    let jobs_handler = jobs::Handler::new(cfg.clone(), gh.clone(), services);
     let jobs_scheduler = jobs::Scheduler::new();
     let jobs_workers_done = future::join_all([
         jobs_handler.start(jobs_rx, stop_tx.subscribe()),

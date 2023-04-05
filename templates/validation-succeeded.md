@@ -13,9 +13,9 @@
 {% endfor %}
 {% endif %}
 
-{%- for (plugin_name, plugin_changes) in plugins_changes -%}
-### {{ plugin_name }} plugin
-{% for change in plugin_changes %}
+{%- for (service_name, service_changes) in services_changes -%}
+### {{ service_name }}
+{% for change in service_changes %}
 {{ change }}
 {%- endfor %}
 {%- endfor %}

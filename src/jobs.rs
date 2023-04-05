@@ -2,7 +2,7 @@ use crate::{
     directory::Directory,
     github::{self, DynGH},
     multierror::MultiError,
-    plugins::{DynPlugin, PluginCfgChanges, PluginName},
+    services::{ChangesSummary, DynServiceHandler, ServiceName},
     tmpl,
 };
 use anyhow::{Error, Result};
@@ -27,10 +27,11 @@ const RECONCILE_FREQUENCY: u64 = 60 * 60;
 pub(crate) enum Job {
     /// A reconcile job verifies if the desired state as described in the
     /// configuration files matches the current state in the external services,
-    /// applying the necessary changes. This work is delegated on plugins, one
-    /// for each of the external services. It can be triggered periodically or
-    /// manually from a pull request. When it's triggered from a pull request,
-    /// any feedback will be published to it in the form of comments.
+    /// applying the necessary changes. This work is delegated on services
+    /// handlers, one for each of the external services. It can be triggered
+    /// periodically or manually from a pull request. When it's triggered from
+    /// a pull request, any feedback will be published to it in the form of
+    /// comments.
     Reconcile(Option<PullRequestData>),
 
     /// A validate job verifies that the proposed changes to the configuration
@@ -44,7 +45,7 @@ pub(crate) enum Job {
 pub(crate) struct Handler {
     cfg: Arc<Config>,
     gh: DynGH,
-    plugins: HashMap<PluginName, DynPlugin>,
+    services: HashMap<ServiceName, DynServiceHandler>,
 }
 
 impl Handler {
@@ -52,9 +53,9 @@ impl Handler {
     pub(crate) fn new(
         cfg: Arc<Config>,
         gh: DynGH,
-        plugins: HashMap<PluginName, DynPlugin>,
+        services: HashMap<ServiceName, DynServiceHandler>,
     ) -> Self {
-        Self { cfg, gh, plugins }
+        Self { cfg, gh, services }
     }
 
     /// Spawn a new task to process jobs received on the jobs channel. The task
@@ -117,12 +118,12 @@ impl Handler {
                 }
             };
 
-        // Plugins configuration validation
-        let mut plugins_changes: HashMap<PluginName, PluginCfgChanges> = HashMap::new();
-        for (plugin_name, plugin) in &self.plugins {
-            match plugin.get_config_changes(&pr.head.ref_).await {
+        // Services configuration validation
+        let mut services_changes: HashMap<ServiceName, ChangesSummary> = HashMap::new();
+        for (service_name, service_handler) in &self.services {
+            match service_handler.get_changes_summary(&pr.head.ref_).await {
                 Ok(changes) => {
-                    plugins_changes.insert(plugin_name, changes);
+                    services_changes.insert(service_name, changes);
                 }
                 Err(err) => merr.push(err),
             }
@@ -144,7 +145,7 @@ impl Handler {
             }
             false => {
                 let comment_body =
-                    tmpl::ValidationSucceeded::new(&directory_changes, &plugins_changes)
+                    tmpl::ValidationSucceeded::new(&directory_changes, &services_changes)
                         .render()?;
                 let check_body = github::new_checks_create_request(
                     pr.head.sha,

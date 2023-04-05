@@ -1,6 +1,6 @@
 use crate::{
     directory::Change,
-    plugins::{PluginCfgChanges, PluginName},
+    services::{ChangesSummary, ServiceName},
 };
 use anyhow::Error;
 use askama::Template;
@@ -24,17 +24,17 @@ impl<'a> ValidationFailed<'a> {
 #[template(path = "validation-succeeded.md")]
 pub(crate) struct ValidationSucceeded<'a> {
     directory_changes: &'a Option<Vec<Change>>,
-    plugins_changes: &'a HashMap<PluginName, PluginCfgChanges>,
+    services_changes: &'a HashMap<ServiceName, ChangesSummary>,
 }
 
 impl<'a> ValidationSucceeded<'a> {
     pub(crate) fn new(
         directory_changes: &'a Option<Vec<Change>>,
-        plugins_changes: &'a HashMap<PluginName, PluginCfgChanges>,
+        services_changes: &'a HashMap<ServiceName, ChangesSummary>,
     ) -> Self {
         Self {
             directory_changes,
-            plugins_changes,
+            services_changes,
         }
     }
 }

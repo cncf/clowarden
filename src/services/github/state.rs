@@ -1,6 +1,6 @@
 use super::legacy;
 use crate::{
-    directory::{TeamName, UserName},
+    directory::{self, Directory, TeamName, UserName},
     github::DynGH,
 };
 use anyhow::{format_err, Context, Result};
@@ -15,35 +15,54 @@ use std::{
 /// Type alias to represent a repository name.
 pub(crate) type RepositoryName = String;
 
+/// GitHub's service state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Cfg {
+pub(crate) struct State {
+    pub directory: Directory,
     pub repositories: Vec<Repository>,
 }
 
-impl Cfg {
-    /// Get plugin configuration.
-    pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, config_ref: Option<&str>) -> Result<Cfg> {
+impl State {
+    /// Create a new State instance from the configuration reference provided.
+    pub(crate) async fn new_from_config(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        ref_: Option<&str>,
+    ) -> Result<State> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
-            let sheriff_cfg = legacy::sheriff::Cfg::get(cfg, gh, config_ref)
+            let directory = Directory::new(cfg.clone(), gh.clone(), ref_).await?;
+            let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
-                .context("invalid github plugin configuration")?;
-            let plugin_cfg = Cfg::from(sheriff_cfg);
-            return Ok(plugin_cfg);
+                .context("invalid github service configuration")?
+                .repositories;
+            let state = State {
+                directory,
+                repositories,
+            };
+            return Ok(state);
         }
         Err(format_err!(
             "only configuration in legacy format supported at the moment"
         ))
     }
 
-    /// Returns the changes detected on the new configuration provided.
-    pub(crate) fn changes(&self, new: &Cfg) -> Vec<Change> {
+    /// Returns the changes detected on the new state provided.
+    pub(crate) fn changes(&self, new: &State) -> Changes {
+        Changes {
+            directory: self.directory.changes(&new.directory),
+            repositories: self.repositories_changes(&new.repositories),
+        }
+    }
+
+    /// Returns the changes detected between two lists of repositories.
+    fn repositories_changes(&self, new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
         // Repositories
         let repos_old: HashMap<&RepositoryName, &Repository> =
             self.repositories.iter().map(|r| (&r.name, r)).collect();
         let repos_new: HashMap<&RepositoryName, &Repository> =
-            new.repositories.iter().map(|r| (&r.name, r)).collect();
+            new.iter().map(|r| (&r.name, r)).collect();
 
         // Helper closures to get the team's/collaborator's role
         let team_role = |collection: &HashMap<&RepositoryName, &Repository>,
@@ -74,11 +93,11 @@ impl Cfg {
         let repos_names_new: HashSet<&RepositoryName> = repos_new.keys().copied().collect();
         let mut repos_added: Vec<&TeamName> = vec![];
         for repo_name in repos_names_new.difference(&repos_names_old) {
-            changes.push(Change::RepositoryAdded(repos_new[*repo_name].clone()));
+            changes.push(RepositoryChange::Added(repos_new[*repo_name].clone()));
             repos_added.push(repo_name);
         }
         for repo_name in repos_names_old.difference(&repos_names_new) {
-            changes.push(Change::RepositoryRemoved(repo_name.to_string()));
+            changes.push(RepositoryChange::Removed(repo_name.to_string()));
         }
 
         // Repositories teams and external collaborators added/removed
@@ -99,14 +118,14 @@ impl Cfg {
                 teams_new = teams.iter().map(|(name, _)| name).collect();
             }
             for team_name in teams_new.difference(&teams_old) {
-                changes.push(Change::RepositoryTeamAdded(
+                changes.push(RepositoryChange::TeamAdded(
                     repo_name.to_string(),
                     team_name.to_string(),
                     team_role(&repos_new, repo_name, team_name),
                 ))
             }
             for team_name in teams_old.difference(&teams_new) {
-                changes.push(Change::RepositoryTeamRemoved(
+                changes.push(RepositoryChange::TeamRemoved(
                     repo_name.to_string(),
                     team_name.to_string(),
                 ))
@@ -115,7 +134,7 @@ impl Cfg {
                 let role_new = team_role(&repos_new, repo_name, team_name);
                 let role_old = team_role(&repos_new, repo_name, team_name);
                 if role_new != role_old {
-                    changes.push(Change::RepositoryTeamRoleUpdated(
+                    changes.push(RepositoryChange::TeamRoleUpdated(
                         repo_name.to_string(),
                         team_name.to_string(),
                         role_new,
@@ -133,14 +152,14 @@ impl Cfg {
                 collaborators_new = collaborators.iter().map(|(name, _)| name).collect();
             }
             for user_name in collaborators_new.difference(&collaborators_old) {
-                changes.push(Change::RepositoryCollaboratorAdded(
+                changes.push(RepositoryChange::CollaboratorAdded(
                     repo_name.to_string(),
                     user_name.to_string(),
                     user_role(&repos_new, repo_name, user_name),
                 ))
             }
             for user_name in collaborators_old.difference(&collaborators_new) {
-                changes.push(Change::RepositoryCollaboratorRemoved(
+                changes.push(RepositoryChange::CollaboratorRemoved(
                     repo_name.to_string(),
                     user_name.to_string(),
                 ))
@@ -149,7 +168,7 @@ impl Cfg {
                 let role_new = user_role(&repos_new, repo_name, user_name);
                 let role_old = user_role(&repos_new, repo_name, user_name);
                 if role_new != role_old {
-                    changes.push(Change::RepositoryCollaboratorRoleUpdated(
+                    changes.push(RepositoryChange::CollaboratorRoleUpdated(
                         repo_name.to_string(),
                         user_name.to_string(),
                         role_new,
@@ -162,7 +181,7 @@ impl Cfg {
             let visibility_old = &repos_old[repo_name].visibility;
             if visibility_new != visibility_old {
                 let visibility_new = visibility_new.clone().unwrap_or_default();
-                changes.push(Change::RepositoryVisibilityUpdated(
+                changes.push(RepositoryChange::VisibilityUpdated(
                     repo_name.to_string(),
                     visibility_new,
                 ))
@@ -173,15 +192,7 @@ impl Cfg {
     }
 }
 
-impl From<legacy::sheriff::Cfg> for Cfg {
-    fn from(sheriff_cfg: legacy::sheriff::Cfg) -> Self {
-        Self {
-            repositories: sheriff_cfg.repositories,
-        }
-    }
-}
-
-/// Repository configuration.
+/// Repository information.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Repository {
     pub name: String,
@@ -214,7 +225,7 @@ impl fmt::Display for Role {
     }
 }
 
-/// Repository's visibility.
+/// Repository visibility.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Visibility {
@@ -232,26 +243,32 @@ impl fmt::Display for Visibility {
     }
 }
 
-/// Represents a configuration change.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
-pub(crate) enum Change {
-    RepositoryAdded(Repository),
-    RepositoryRemoved(RepositoryName),
-    RepositoryTeamAdded(RepositoryName, TeamName, Role),
-    RepositoryTeamRemoved(RepositoryName, TeamName),
-    RepositoryTeamRoleUpdated(RepositoryName, TeamName, Role),
-    RepositoryCollaboratorAdded(RepositoryName, UserName, Role),
-    RepositoryCollaboratorRemoved(RepositoryName, UserName),
-    RepositoryCollaboratorRoleUpdated(RepositoryName, UserName, Role),
-    RepositoryVisibilityUpdated(RepositoryName, Visibility),
+/// Represents the changes between two states.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Changes {
+    pub directory: Vec<directory::Change>,
+    pub repositories: Vec<RepositoryChange>,
 }
 
-impl fmt::Display for Change {
+/// Represents a repository change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RepositoryChange {
+    Added(Repository),
+    Removed(RepositoryName),
+    TeamAdded(RepositoryName, TeamName, Role),
+    TeamRemoved(RepositoryName, TeamName),
+    TeamRoleUpdated(RepositoryName, TeamName, Role),
+    CollaboratorAdded(RepositoryName, UserName, Role),
+    CollaboratorRemoved(RepositoryName, UserName),
+    CollaboratorRoleUpdated(RepositoryName, UserName, Role),
+    VisibilityUpdated(RepositoryName, Visibility),
+}
+
+impl fmt::Display for RepositoryChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Change::RepositoryAdded(repo) => {
+            RepositoryChange::Added(repo) => {
                 write!(
                     f,
                     "- repository **{}** has been *added* (visibility: **{}**)",
@@ -275,52 +292,52 @@ impl fmt::Display for Change {
                     }
                 }
             }
-            Change::RepositoryRemoved(repo_name) => {
+            RepositoryChange::Removed(repo_name) => {
                 write!(f, "- repository **{}** has been *removed*", repo_name)?;
             }
-            Change::RepositoryTeamAdded(repo_name, team_name, role) => {
+            RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                 write!(
                     f,
                     "- team **{}** has been *added* to repository **{}** (role: **{}**)",
                     team_name, repo_name, role
                 )?;
             }
-            Change::RepositoryTeamRemoved(repo_name, team_name) => {
+            RepositoryChange::TeamRemoved(repo_name, team_name) => {
                 write!(
                     f,
                     "- team **{}** has been *removed* from repository **{}**",
                     team_name, repo_name
                 )?;
             }
-            Change::RepositoryTeamRoleUpdated(repo_name, team_name, role) => {
+            RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => {
                 write!(
                     f,
                     "- team **{}** role in repository **{}** has been *updated* to **{}**",
                     team_name, repo_name, role
                 )?;
             }
-            Change::RepositoryCollaboratorAdded(repo_name, user_name, role) => {
+            RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => {
                 write!(
                     f,
                     "- user **{}** is now an external collaborator (role: **{}**) of repository **{}**",
                     user_name, role, repo_name
                 )?;
             }
-            Change::RepositoryCollaboratorRemoved(repo_name, user_name) => {
+            RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
                 write!(
                     f,
                     "- user **{}** is no longer an external collaborator of repository **{}**",
                     user_name, repo_name
                 )?;
             }
-            Change::RepositoryCollaboratorRoleUpdated(repo_name, user_name, role) => {
+            RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
                 write!(
                     f,
                     "- user **{}** role in repository **{}** has been updated to **{}**",
                     user_name, repo_name, role
                 )?;
             }
-            Change::RepositoryVisibilityUpdated(repo_name, visibility) => {
+            RepositoryChange::VisibilityUpdated(repo_name, visibility) => {
                 write!(
                     f,
                     "- repository **{}** visibility has been updated to **{}**",

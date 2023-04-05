@@ -1,5 +1,5 @@
 pub(crate) mod sheriff {
-    use crate::{github::DynGH, multierror::MultiError, plugins::github::cfg::Repository};
+    use crate::{github::DynGH, multierror::MultiError, services::github::state::Repository};
     use anyhow::{format_err, Context, Error, Result};
     use config::Config;
     use serde::{Deserialize, Serialize};
@@ -31,7 +31,8 @@ pub(crate) mod sheriff {
 
         /// Validate configuration.
         fn validate(&self) -> Result<()> {
-            let mut merr = MultiError::new(Some("invalid github plugin configuration".to_string()));
+            let mut merr =
+                MultiError::new(Some("invalid github service configuration".to_string()));
 
             let mut repos_seen = vec![];
             for (i, repo) in self.repositories.iter().enumerate() {
