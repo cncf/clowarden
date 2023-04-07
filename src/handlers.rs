@@ -30,11 +30,7 @@ struct RouterState {
 }
 
 /// Setup HTTP server router.
-pub(crate) fn setup_router(
-    cfg: Arc<Config>,
-    gh: DynGH,
-    jobs_tx: mpsc::UnboundedSender<Job>,
-) -> Router {
+pub(crate) fn setup_router(cfg: Arc<Config>, gh: DynGH, jobs_tx: mpsc::UnboundedSender<Job>) -> Router {
     // Setup webhook secret
     let webhook_secret = cfg.get_string("githubApp.webhookSecret").unwrap();
 
@@ -68,10 +64,7 @@ async fn event(
     )
     .is_err()
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "no valid signature found".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, "no valid signature found".to_string()));
     };
 
     // Parse event
@@ -83,10 +76,7 @@ async fn event(
             return Err((StatusCode::BAD_REQUEST, err.to_string()));
         }
         Err(EventError::InvalidBody(err)) => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                EventError::InvalidBody(err).to_string(),
-            ))
+            return Err((StatusCode::BAD_REQUEST, EventError::InvalidBody(err).to_string()))
         }
         Err(EventError::UnsupportedEvent) => return Ok(()),
     };
@@ -170,8 +160,7 @@ async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent
     // Check if any of the configuration files is on the pr
     if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
         let legacy_cfg_files = &[
-            cfg.get_string("config.legacy.sheriff.permissionsPath")
-                .unwrap(),
+            cfg.get_string("config.legacy.sheriff.permissionsPath").unwrap(),
             cfg.get_string("config.legacy.cncf.peoplePath").unwrap(),
         ];
         for filename in gh.list_pr_files(event.pull_request.number).await? {

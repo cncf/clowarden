@@ -1,6 +1,6 @@
 use crate::{
-    directory::Change,
-    services::{ChangesSummary, ServiceName},
+    directory,
+    services::{self, ServiceName},
 };
 use anyhow::Error;
 use askama::Template;
@@ -23,14 +23,14 @@ impl<'a> ValidationFailed<'a> {
 #[derive(Debug, Template)]
 #[template(path = "validation-succeeded.md")]
 pub(crate) struct ValidationSucceeded<'a> {
-    directory_changes: &'a Option<Vec<Change>>,
-    services_changes: &'a HashMap<ServiceName, ChangesSummary>,
+    directory_changes: &'a directory::ChangesSummary,
+    services_changes: &'a HashMap<ServiceName, services::ChangesSummary>,
 }
 
 impl<'a> ValidationSucceeded<'a> {
     pub(crate) fn new(
-        directory_changes: &'a Option<Vec<Change>>,
-        services_changes: &'a HashMap<ServiceName, ChangesSummary>,
+        directory_changes: &'a directory::ChangesSummary,
+        services_changes: &'a HashMap<ServiceName, services::ChangesSummary>,
     ) -> Self {
         Self {
             directory_changes,
@@ -71,10 +71,7 @@ mod filters {
                 write!(s, "- team **{team_name}** has been *removed*")?;
             }
             directory::Change::TeamMaintainerAdded(team_name, user_name) => {
-                write!(
-                    s,
-                    "- **{user_name}** is now a maintainer of team **{team_name}**",
-                )?;
+                write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**",)?;
             }
             directory::Change::TeamMaintainerRemoved(team_name, user_name) => {
                 write!(
@@ -83,10 +80,7 @@ mod filters {
                 )?;
             }
             directory::Change::TeamMemberAdded(team_name, user_name) => {
-                write!(
-                    s,
-                    "- **{user_name}** is now a member of team **{team_name}**"
-                )?;
+                write!(s, "- **{user_name}** is now a member of team **{team_name}**")?;
             }
             directory::Change::TeamMemberRemoved(team_name, user_name) => {
                 write!(

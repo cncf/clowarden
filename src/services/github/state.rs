@@ -24,11 +24,7 @@ pub(crate) struct State {
 
 impl State {
     /// Create a new State instance from the configuration reference provided.
-    pub(crate) async fn new_from_config(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        ref_: Option<&str>,
-    ) -> Result<State> {
+    pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<State> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
             let directory = Directory::new(cfg.clone(), gh.clone(), ref_).await?;
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
@@ -54,15 +50,14 @@ impl State {
         }
     }
 
-    /// Returns the changes detected between two lists of repositories.
+    /// Returns the changes detected on the new repositories provided.
     fn repositories_changes(&self, new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
         // Repositories
         let repos_old: HashMap<&RepositoryName, &Repository> =
             self.repositories.iter().map(|r| (&r.name, r)).collect();
-        let repos_new: HashMap<&RepositoryName, &Repository> =
-            new.iter().map(|r| (&r.name, r)).collect();
+        let repos_new: HashMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
 
         // Helper closures to get the team's/collaborator's role
         let team_role = |collection: &HashMap<&RepositoryName, &Repository>,

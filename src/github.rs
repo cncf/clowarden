@@ -95,11 +95,7 @@ impl GHApi {
 #[async_trait]
 impl GH for GHApi {
     async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()> {
-        _ = self
-            .client
-            .checks()
-            .create(&self.org, &self.repo, body)
-            .await?;
+        _ = self.client.checks().create(&self.org, &self.repo, body).await?;
         Ok(())
     }
 
@@ -152,9 +148,7 @@ pub(crate) enum Event {
 impl TryFrom<(&EventHeader, &EventPayload)> for Event {
     type Error = EventError;
 
-    fn try_from(
-        (event_name, event_body): (&EventHeader, &EventPayload),
-    ) -> Result<Self, Self::Error> {
+    fn try_from((event_name, event_body): (&EventHeader, &EventPayload)) -> Result<Self, Self::Error> {
         match event_name {
             Some(event_name) => match event_name.as_bytes() {
                 b"pull_request" => {

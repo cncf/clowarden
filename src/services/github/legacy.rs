@@ -15,9 +15,7 @@ pub(crate) mod sheriff {
     impl Cfg {
         /// Get sheriff configuration.
         pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
-            let path = &cfg
-                .get_string("config.legacy.sheriff.permissionsPath")
-                .unwrap();
+            let path = &cfg.get_string("config.legacy.sheriff.permissionsPath").unwrap();
             let content = gh
                 .get_file_content(path, ref_)
                 .await
@@ -31,8 +29,7 @@ pub(crate) mod sheriff {
 
         /// Validate configuration.
         fn validate(&self) -> Result<()> {
-            let mut merr =
-                MultiError::new(Some("invalid github service configuration".to_string()));
+            let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
 
             let mut repos_seen = vec![];
             for (i, repo) in self.repositories.iter().enumerate() {

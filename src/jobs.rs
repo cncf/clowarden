@@ -1,8 +1,8 @@
 use crate::{
-    directory::Directory,
+    directory::{self, Directory},
     github::{self, DynGH},
     multierror::MultiError,
-    services::{ChangesSummary, DynServiceHandler, ServiceName},
+    services::{BaseRefConfigStatus, ChangesSummary, DynServiceHandler, ServiceName},
     tmpl,
 };
 use anyhow::{Error, Result};
@@ -100,32 +100,31 @@ impl Handler {
         let mut merr = MultiError::new(None);
 
         // Directory configuration validation
-        let directory_changes =
+        let directory_changes: directory::ChangesSummary =
             match Directory::new(self.cfg.clone(), self.gh.clone(), Some(&pr.head.ref_)).await {
-                Ok(directory_head) => {
-                    match Directory::new(self.cfg.clone(), self.gh.clone(), None).await {
-                        Ok(directory_base) => Some(directory_base.changes(&directory_head)),
-                        Err(_) => {
-                            // TODO: invalid config in base ref
-                            // This should not happen, but handle anyway
-                            None
-                        }
-                    }
-                }
+                Ok(directory_head) => match Directory::new(self.cfg.clone(), self.gh.clone(), None).await {
+                    Ok(directory_base) => (
+                        directory_base.changes(&directory_head),
+                        BaseRefConfigStatus::Valid,
+                    ),
+                    Err(_) => (vec![], BaseRefConfigStatus::Invalid),
+                },
                 Err(err) => {
                     merr.push(err);
-                    None
+                    (vec![], BaseRefConfigStatus::Unknown)
                 }
             };
 
         // Services configuration validation
         let mut services_changes: HashMap<ServiceName, ChangesSummary> = HashMap::new();
-        for (service_name, service_handler) in &self.services {
-            match service_handler.get_changes_summary(&pr.head.ref_).await {
-                Ok(changes) => {
-                    services_changes.insert(service_name, changes);
+        if !merr.contains_errors() {
+            for (service_name, service_handler) in &self.services {
+                match service_handler.get_changes_summary(&pr.head.ref_).await {
+                    Ok(changes) => {
+                        services_changes.insert(service_name, changes);
+                    }
+                    Err(err) => merr.push(err),
                 }
-                Err(err) => merr.push(err),
             }
         }
 
@@ -145,8 +144,7 @@ impl Handler {
             }
             false => {
                 let comment_body =
-                    tmpl::ValidationSucceeded::new(&directory_changes, &services_changes)
-                        .render()?;
+                    tmpl::ValidationSucceeded::new(&directory_changes, &services_changes).render()?;
                 let check_body = github::new_checks_create_request(
                     pr.head.sha,
                     Some(JobStatus::Completed),

@@ -61,9 +61,7 @@ pub(crate) mod sheriff {
     impl Cfg {
         /// Get sheriff configuration.
         pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
-            let path = &cfg
-                .get_string("config.legacy.sheriff.permissionsPath")
-                .unwrap();
+            let path = &cfg.get_string("config.legacy.sheriff.permissionsPath").unwrap();
             let content = gh
                 .get_file_content(path, ref_)
                 .await

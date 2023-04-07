@@ -10,7 +10,22 @@ pub(crate) type ServiceName = &'static str;
 pub(crate) type DynServiceHandler = Box<dyn ServiceHandler + Send + Sync>;
 
 /// Type alias to represent some service state changes.
-pub(crate) type ChangesSummary = Vec<String>;
+pub(crate) type ChangesSummary = (Vec<String>, BaseRefConfigStatus);
+
+/// Status of the configuration from the base reference.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum BaseRefConfigStatus {
+    Valid,
+    Invalid,
+    Unknown,
+}
+
+impl BaseRefConfigStatus {
+    /// Check if the configuration is invalid.
+    pub(crate) fn is_invalid(&self) -> bool {
+        *self == BaseRefConfigStatus::Invalid
+    }
+}
 
 /// Trait that defines some operations a service handler must support.
 #[async_trait]

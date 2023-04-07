@@ -1,4 +1,4 @@
-use crate::github::DynGH;
+use crate::{github::DynGH, services::BaseRefConfigStatus};
 use anyhow::{format_err, Context, Result};
 use config::Config;
 use lazy_static::lazy_static;
@@ -12,8 +12,8 @@ use std::{
 mod legacy;
 
 lazy_static! {
-    static ref GITHUB_URL: Regex = Regex::new("^https://github.com/(?P<handle>[^/]+)/?$")
-        .expect("expr in GITHUB_URL to be valid");
+    static ref GITHUB_URL: Regex =
+        Regex::new("^https://github.com/(?P<handle>[^/]+)/?$").expect("expr in GITHUB_URL to be valid");
 }
 
 /// Type alias to represent a team name.
@@ -24,6 +24,9 @@ pub(crate) type UserName = String;
 
 /// Type alias to represent a user full name.
 pub(crate) type UserFullName = String;
+
+/// Type alias to represent some directory changes.
+pub(crate) type ChangesSummary = (Vec<Change>, BaseRefConfigStatus);
 
 /// Directory configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -51,8 +54,7 @@ impl Directory {
         let mut changes = vec![];
 
         // Teams
-        let teams_old: HashMap<&TeamName, &Team> =
-            self.teams.iter().map(|t| (&t.name, t)).collect();
+        let teams_old: HashMap<&TeamName, &Team> = self.teams.iter().map(|t| (&t.name, t)).collect();
         let teams_new: HashMap<&TeamName, &Team> = new.teams.iter().map(|t| (&t.name, t)).collect();
 
         // Teams added/removed
@@ -76,10 +78,8 @@ impl Directory {
             }
 
             // Maintainers
-            let maintainers_old: HashSet<&UserName> =
-                teams_old[team_name].maintainers.iter().collect();
-            let maintainers_new: HashSet<&UserName> =
-                teams_new[team_name].maintainers.iter().collect();
+            let maintainers_old: HashSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
+            let maintainers_new: HashSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
             for user_name in maintainers_new.difference(&maintainers_old) {
                 changes.push(Change::TeamMaintainerAdded(
                     team_name.to_string(),
@@ -111,10 +111,8 @@ impl Directory {
         }
 
         // Users
-        let users_old: HashMap<&UserFullName, &User> =
-            self.users.iter().map(|u| (&u.full_name, u)).collect();
-        let users_new: HashMap<&UserFullName, &User> =
-            new.users.iter().map(|u| (&u.full_name, u)).collect();
+        let users_old: HashMap<&UserFullName, &User> = self.users.iter().map(|u| (&u.full_name, u)).collect();
+        let users_new: HashMap<&UserFullName, &User> = new.users.iter().map(|u| (&u.full_name, u)).collect();
 
         // Users added/removed
         let users_fullnames_old: HashSet<&UserFullName> = users_old.keys().copied().collect();
@@ -184,9 +182,7 @@ impl From<legacy::Cfg> for Directory {
                         .map(|captures| captures["handle"].to_string());
                     let image_url = match u.image {
                         Some(v) if v.starts_with("https://") => Some(v),
-                        Some(v) => Some(format!(
-                            "https://github.com/cncf/people/raw/main/images/{v}",
-                        )),
+                        Some(v) => Some(format!("https://github.com/cncf/people/raw/main/images/{v}",)),
                         None => None,
                     };
                     User {
