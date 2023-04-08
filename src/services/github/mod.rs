@@ -1,5 +1,5 @@
-use self::state::{RepositoryChange, State};
-use super::{BaseRefConfigStatus, ChangesSummary, ServiceHandler};
+use self::state::State;
+use super::{ActionsSummary, BaseRefConfigStatus, ChangesSummary, ServiceHandler};
 use crate::github::DynGH;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,9 +8,6 @@ use std::sync::Arc;
 
 mod legacy;
 pub(crate) mod state;
-
-/// Type alias to represent a reconcile plan.
-pub(crate) type ReconcilePlan = Vec<RepositoryChange>;
 
 /// GitHub's service handler.
 pub(crate) struct Handler {
@@ -22,15 +19,6 @@ impl Handler {
     /// Create a new Handler instance.
     pub(crate) fn new(cfg: Arc<Config>, gh: DynGH) -> Self {
         Self { cfg, gh }
-    }
-
-    /// Get reconcile plan to go from the current to the desired state.
-    pub(crate) async fn get_reconcile_plan(
-        &self,
-        current_state: &State,
-        desired_state: &State,
-    ) -> Result<ReconcilePlan> {
-        todo!()
     }
 }
 
@@ -45,7 +33,7 @@ impl ServiceHandler for Handler {
                     .changes(&state_head)
                     .repositories
                     .into_iter()
-                    .map(|change| change.to_string())
+                    .map(|change| change.template_format().unwrap())
                     .collect();
                 return Ok((state_changes, BaseRefConfigStatus::Valid));
             }
@@ -54,7 +42,7 @@ impl ServiceHandler for Handler {
     }
 
     /// [ServiceHandler::reconcile]
-    async fn reconcile(&self) -> Result<()> {
+    async fn reconcile(&self) -> Result<ActionsSummary> {
         todo!()
     }
 }

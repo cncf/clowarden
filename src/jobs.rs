@@ -1,5 +1,5 @@
 use crate::{
-    directory::{self, Directory},
+    directory::Directory,
     github::{self, DynGH},
     multierror::MultiError,
     services::{BaseRefConfigStatus, ChangesSummary, DynServiceHandler, ServiceName},
@@ -100,15 +100,9 @@ impl Handler {
         let mut merr = MultiError::new(None);
 
         // Directory configuration validation
-        let directory_changes: directory::ChangesSummary =
-            match Directory::new(self.cfg.clone(), self.gh.clone(), Some(&pr.head.ref_)).await {
-                Ok(directory_head) => match Directory::new(self.cfg.clone(), self.gh.clone(), None).await {
-                    Ok(directory_base) => (
-                        directory_base.changes(&directory_head),
-                        BaseRefConfigStatus::Valid,
-                    ),
-                    Err(_) => (vec![], BaseRefConfigStatus::Invalid),
-                },
+        let directory_changes =
+            match Directory::get_changes_summary(self.cfg.clone(), self.gh.clone(), &pr.head.ref_).await {
+                Ok(changes) => changes,
                 Err(err) => {
                     merr.push(err);
                     (vec![], BaseRefConfigStatus::Unknown)
@@ -184,6 +178,7 @@ impl Scheduler {
             let reconcile_frequency = time::Duration::from_secs(RECONCILE_FREQUENCY);
             let mut reconcile = time::interval(reconcile_frequency);
             reconcile.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
                     biased;

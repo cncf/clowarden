@@ -9,6 +9,9 @@ pub(crate) type ServiceName = &'static str;
 /// Type alias to represent a service handler trait object.
 pub(crate) type DynServiceHandler = Box<dyn ServiceHandler + Send + Sync>;
 
+/// Type alias to represent some actions executed on the service.
+pub(crate) type ActionsSummary = Vec<String>;
+
 /// Type alias to represent some service state changes.
 pub(crate) type ChangesSummary = (Vec<String>, BaseRefConfigStatus);
 
@@ -36,5 +39,5 @@ pub(crate) trait ServiceHandler {
 
     /// Execute the actions needed so that the current state (as defined in the
     /// service) matches the desired state (as defined in the configuration).
-    async fn reconcile(&self) -> Result<()>;
+    async fn reconcile(&self) -> Result<ActionsSummary>;
 }

@@ -40,67 +40,9 @@ impl<'a> ValidationSucceeded<'a> {
 }
 
 mod filters {
-    use crate::{
-        directory::{self},
-        multierror::MultiError,
-    };
+    use crate::multierror::MultiError;
     use anyhow::{Error, Result};
     use std::fmt::Write;
-
-    /// Template filter that formats the directory change provided.
-    pub(crate) fn format_directory_change(change: &directory::Change) -> askama::Result<String> {
-        let mut s = String::new();
-
-        match change {
-            directory::Change::TeamAdded(team) => {
-                write!(s, "- team **{}** has been *added*", team.name)?;
-                if !team.maintainers.is_empty() {
-                    write!(s, "\n\t- Maintainers")?;
-                    for user_name in &team.maintainers {
-                        write!(s, "\n\t\t- **{user_name}**")?;
-                    }
-                }
-                if !team.members.is_empty() {
-                    write!(s, "\n\t- Members")?;
-                    for user_name in &team.members {
-                        write!(s, "\n\t\t- **{user_name}**")?;
-                    }
-                }
-            }
-            directory::Change::TeamRemoved(team_name) => {
-                write!(s, "- team **{team_name}** has been *removed*")?;
-            }
-            directory::Change::TeamMaintainerAdded(team_name, user_name) => {
-                write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**",)?;
-            }
-            directory::Change::TeamMaintainerRemoved(team_name, user_name) => {
-                write!(
-                    s,
-                    "- **{user_name}** is no longer a maintainer of team **{team_name}**",
-                )?;
-            }
-            directory::Change::TeamMemberAdded(team_name, user_name) => {
-                write!(s, "- **{user_name}** is now a member of team **{team_name}**")?;
-            }
-            directory::Change::TeamMemberRemoved(team_name, user_name) => {
-                write!(
-                    s,
-                    "- **{user_name}** is no longer a member of team **{team_name}**",
-                )?;
-            }
-            directory::Change::UserAdded(full_name) => {
-                write!(s, "- user **{full_name}** has been *added*")?;
-            }
-            directory::Change::UserRemoved(full_name) => {
-                write!(s, "- user **{full_name}** has been *removed*")?;
-            }
-            directory::Change::UserUpdated(full_name) => {
-                write!(s, "- user **{full_name}** details have been *updated*")?;
-            }
-        }
-
-        Ok(s)
-    }
 
     /// Template filter that formats the error provided.
     pub(crate) fn format_error(err: &Error) -> askama::Result<String> {

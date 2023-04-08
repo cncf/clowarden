@@ -8,7 +8,7 @@ use config::Config;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
+    fmt::{self, Write},
     sync::Arc,
 };
 
@@ -46,17 +46,16 @@ impl State {
     pub(crate) fn changes(&self, new: &State) -> Changes {
         Changes {
             directory: self.directory.changes(&new.directory),
-            repositories: self.repositories_changes(&new.repositories),
+            repositories: State::repositories_changes(&self.repositories, &new.repositories),
         }
     }
 
-    /// Returns the changes detected on the new repositories provided.
-    fn repositories_changes(&self, new: &[Repository]) -> Vec<RepositoryChange> {
+    /// Returns the changes detected between two groups of repositories.
+    fn repositories_changes(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
         // Repositories
-        let repos_old: HashMap<&RepositoryName, &Repository> =
-            self.repositories.iter().map(|r| (&r.name, r)).collect();
+        let repos_old: HashMap<&RepositoryName, &Repository> = old.iter().map(|r| (&r.name, r)).collect();
         let repos_new: HashMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
 
         // Helper closures to get the team's/collaborator's role
@@ -260,86 +259,90 @@ pub(crate) enum RepositoryChange {
     VisibilityUpdated(RepositoryName, Visibility),
 }
 
-impl fmt::Display for RepositoryChange {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl RepositoryChange {
+    /// Format change to be used on a template.
+    pub(crate) fn template_format(&self) -> Result<String> {
+        let mut s = String::new();
+
         match self {
             RepositoryChange::Added(repo) => {
                 write!(
-                    f,
+                    s,
                     "- repository **{}** has been *added* (visibility: **{}**)",
                     repo.name,
                     repo.visibility.clone().unwrap_or_default()
                 )?;
                 if let Some(teams) = &repo.teams {
                     if !teams.is_empty() {
-                        write!(f, "\n\t- Teams")?;
+                        write!(s, "\n\t- Teams")?;
                         for (team_name, role) in teams.iter() {
-                            write!(f, "\n\t\t- **{team_name}**: *{role}*")?;
+                            write!(s, "\n\t\t- **{team_name}**: *{role}*")?;
                         }
                     }
                 }
                 if let Some(collaborators) = &repo.external_collaborators {
                     if !collaborators.is_empty() {
-                        write!(f, "\n\t- External collaborators")?;
+                        write!(s, "\n\t- External collaborators")?;
                         for (user_name, role) in collaborators.iter() {
-                            write!(f, "\n\t\t- **{user_name}**: *{role}*")?;
+                            write!(s, "\n\t\t- **{user_name}**: *{role}*")?;
                         }
                     }
                 }
             }
             RepositoryChange::Removed(repo_name) => {
-                write!(f, "- repository **{}** has been *removed*", repo_name)?;
+                write!(s, "- repository **{}** has been *removed*", repo_name)?;
             }
             RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                 write!(
-                    f,
+                    s,
                     "- team **{}** has been *added* to repository **{}** (role: **{}**)",
                     team_name, repo_name, role
                 )?;
             }
             RepositoryChange::TeamRemoved(repo_name, team_name) => {
                 write!(
-                    f,
+                    s,
                     "- team **{}** has been *removed* from repository **{}**",
                     team_name, repo_name
                 )?;
             }
             RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => {
                 write!(
-                    f,
+                    s,
                     "- team **{}** role in repository **{}** has been *updated* to **{}**",
                     team_name, repo_name, role
                 )?;
             }
             RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => {
                 write!(
-                    f,
+                    s,
                     "- user **{}** is now an external collaborator (role: **{}**) of repository **{}**",
                     user_name, role, repo_name
                 )?;
             }
             RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
                 write!(
-                    f,
+                    s,
                     "- user **{}** is no longer an external collaborator of repository **{}**",
                     user_name, repo_name
                 )?;
             }
             RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
                 write!(
-                    f,
+                    s,
                     "- user **{}** role in repository **{}** has been updated to **{}**",
                     user_name, repo_name, role
                 )?;
             }
             RepositoryChange::VisibilityUpdated(repo_name, visibility) => {
                 write!(
-                    f,
+                    s,
                     "- repository **{}** visibility has been updated to **{}**",
                     repo_name, visibility
                 )?;
             }
         }
-        Ok(())
+
+        Ok(s)
     }
 }

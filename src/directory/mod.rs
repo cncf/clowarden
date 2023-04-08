@@ -6,6 +6,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
     sync::Arc,
 };
 
@@ -47,6 +48,24 @@ impl Directory {
         Err(format_err!(
             "only configuration in legacy format supported at the moment"
         ))
+    }
+
+    /// Return a summary of the changes detected in the directory from the base
+    /// to the head reference.
+    pub(crate) async fn get_changes_summary(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        head_ref: &str,
+    ) -> Result<ChangesSummary> {
+        let directory_head = Directory::new(cfg.clone(), gh.clone(), Some(head_ref)).await?;
+        let changes_summary = match Directory::new(cfg, gh, None).await {
+            Ok(directory_base) => (
+                directory_base.changes(&directory_head),
+                BaseRefConfigStatus::Valid,
+            ),
+            Err(_) => (vec![], BaseRefConfigStatus::Invalid),
+        };
+        Ok(changes_summary)
     }
 
     /// Returns the changes detected on the new directory provided.
@@ -144,7 +163,7 @@ impl Directory {
     }
 
     /// Get user identified by the user name provided.
-    pub(crate) fn get_user(&self, user_name: &str) -> Option<&User> {
+    pub(crate) fn _get_user(&self, user_name: &str) -> Option<&User> {
         self.users.iter().find(|u| {
             if let Some(entry_user_name) = &u.user_name {
                 return entry_user_name == user_name;
@@ -260,4 +279,61 @@ pub(crate) enum Change {
     UserAdded(UserFullName),
     UserRemoved(UserFullName),
     UserUpdated(UserFullName),
+}
+
+impl Change {
+    /// Format change to be used on a template.
+    pub(crate) fn template_format(&self) -> Result<String> {
+        let mut s = String::new();
+
+        match self {
+            Change::TeamAdded(team) => {
+                write!(s, "- team **{}** has been *added*", team.name)?;
+                if !team.maintainers.is_empty() {
+                    write!(s, "\n\t- Maintainers")?;
+                    for user_name in &team.maintainers {
+                        write!(s, "\n\t\t- **{user_name}**")?;
+                    }
+                }
+                if !team.members.is_empty() {
+                    write!(s, "\n\t- Members")?;
+                    for user_name in &team.members {
+                        write!(s, "\n\t\t- **{user_name}**")?;
+                    }
+                }
+            }
+            Change::TeamRemoved(team_name) => {
+                write!(s, "- team **{team_name}** has been *removed*")?;
+            }
+            Change::TeamMaintainerAdded(team_name, user_name) => {
+                write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**",)?;
+            }
+            Change::TeamMaintainerRemoved(team_name, user_name) => {
+                write!(
+                    s,
+                    "- **{user_name}** is no longer a maintainer of team **{team_name}**",
+                )?;
+            }
+            Change::TeamMemberAdded(team_name, user_name) => {
+                write!(s, "- **{user_name}** is now a member of team **{team_name}**")?;
+            }
+            Change::TeamMemberRemoved(team_name, user_name) => {
+                write!(
+                    s,
+                    "- **{user_name}** is no longer a member of team **{team_name}**",
+                )?;
+            }
+            Change::UserAdded(full_name) => {
+                write!(s, "- user **{full_name}** has been *added*")?;
+            }
+            Change::UserRemoved(full_name) => {
+                write!(s, "- user **{full_name}** has been *removed*")?;
+            }
+            Change::UserUpdated(full_name) => {
+                write!(s, "- user **{full_name}** details have been *updated*")?;
+            }
+        }
+
+        Ok(s)
+    }
 }

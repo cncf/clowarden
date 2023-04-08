@@ -13,7 +13,7 @@
 The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
 {% endif %}
 {% for change in directory_changes %}
-{{- change|format_directory_change }}
+{{- change.template_format().unwrap() }}
 {% endfor %}
 {% endif %}
 
