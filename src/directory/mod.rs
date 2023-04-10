@@ -38,7 +38,11 @@ pub(crate) struct Directory {
 
 impl Directory {
     /// Create a new directory instance.
-    pub(crate) async fn new(cfg: Arc<Config>, gh: DynGH, config_ref: Option<&str>) -> Result<Self> {
+    pub(crate) async fn new_from_config(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        config_ref: Option<&str>,
+    ) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
             let legacy_cfg = legacy::Cfg::get(cfg, gh, config_ref)
                 .await
@@ -57,8 +61,8 @@ impl Directory {
         gh: DynGH,
         head_ref: &str,
     ) -> Result<ChangesSummary> {
-        let directory_head = Directory::new(cfg.clone(), gh.clone(), Some(head_ref)).await?;
-        let changes_summary = match Directory::new(cfg, gh, None).await {
+        let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
+        let changes_summary = match Directory::new_from_config(cfg, gh, None).await {
             Ok(directory_base) => (
                 directory_base.changes(&directory_head),
                 BaseRefConfigStatus::Valid,

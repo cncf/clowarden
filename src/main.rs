@@ -60,9 +60,10 @@ async fn main() -> Result<()> {
     // Setup services handlers
     let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
     if cfg.get_bool("services.github.enabled").unwrap_or_default() {
+        let svc = Arc::new(services::github::service::SvcApi::new(cfg.clone())?);
         services.insert(
             "GitHub",
-            Box::new(services::github::Handler::new(cfg.clone(), gh.clone())),
+            Box::new(services::github::Handler::new(cfg.clone(), gh.clone(), svc)),
         );
     }
 

@@ -1,10 +1,11 @@
-use super::legacy;
+use super::{legacy, service::DynSvc};
 use crate::{
-    directory::{self, Directory, TeamName, UserName},
+    directory::{self, Change, Directory, Team, TeamName, UserName},
     github::DynGH,
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
+use octorust::types::{RepositoryPermissions, TeamPermissions};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -26,7 +27,7 @@ impl State {
     /// Create a new State instance from the configuration reference provided.
     pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<State> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
-            let directory = Directory::new(cfg.clone(), gh.clone(), ref_).await?;
+            let directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
                 .context("invalid github service configuration")?
@@ -42,10 +43,85 @@ impl State {
         ))
     }
 
+    /// Create a new State instance from the service's state.
+    pub(crate) async fn new_from_service(svc: DynSvc) -> Result<State> {
+        let mut state = State::default();
+
+        // TODO: increase concurrency for requests done below
+
+        // Teams
+        for team in svc.list_teams().await? {
+            let maintainers = svc
+                .list_team_maintainers(&team.slug)
+                .await?
+                .into_iter()
+                .map(|u| u.login)
+                .collect();
+
+            let members = svc
+                .list_team_members(&team.slug)
+                .await?
+                .into_iter()
+                .map(|u| u.login)
+                .collect();
+
+            state.directory.teams.push(Team {
+                name: team.slug,
+                display_name: Some(team.name),
+                maintainers,
+                members,
+                ..Default::default()
+            });
+        }
+
+        // Repositories
+        for repo in svc.list_repositories().await? {
+            let collaborators: HashMap<UserName, Role> = svc
+                .list_repository_collaborators(&repo.name)
+                .await?
+                .into_iter()
+                .map(|c| (c.login, c.permissions.into()))
+                .collect();
+            let collaborators = if collaborators.is_empty() {
+                None
+            } else {
+                Some(collaborators)
+            };
+
+            let teams: HashMap<TeamName, Role> = svc
+                .list_repository_teams(&repo.name)
+                .await?
+                .into_iter()
+                .map(|t| (t.name, t.permissions.into()))
+                .collect();
+            let teams = if teams.is_empty() { None } else { Some(teams) };
+
+            state.repositories.push(Repository {
+                name: repo.name,
+                collaborators,
+                teams,
+                visibility: Some(repo.visibility.as_str().into()),
+            });
+        }
+
+        Ok(state)
+    }
+
     /// Returns the changes detected on the new state provided.
     pub(crate) fn changes(&self, new: &State) -> Changes {
         Changes {
-            directory: self.directory.changes(&new.directory),
+            directory: self
+                .directory
+                .changes(&new.directory)
+                .into_iter()
+                .filter(|change| {
+                    // We are not interested in users' changes
+                    !matches!(
+                        change,
+                        Change::UserAdded(_) | Change::UserRemoved(_) | Change::UserUpdated(_)
+                    )
+                })
+                .collect(),
             repositories: State::repositories_changes(&self.repositories, &new.repositories),
         }
     }
@@ -74,7 +150,7 @@ impl State {
                          repo_name: &RepositoryName,
                          user_name: &UserName| {
             collection[repo_name]
-                .external_collaborators
+                .collaborators
                 .as_ref()
                 .unwrap()
                 .get(&user_name.to_string())
@@ -94,7 +170,7 @@ impl State {
             changes.push(RepositoryChange::Removed(repo_name.to_string()));
         }
 
-        // Repositories teams and external collaborators added/removed
+        // Repositories teams and collaborators added/removed
         for repo_name in repos_new.keys() {
             if repos_added.contains(repo_name) {
                 // When a repo is added the change includes the full repo, so
@@ -136,13 +212,13 @@ impl State {
                 }
             }
 
-            // External collaborators
+            // Collaborators
             let mut collaborators_old = HashSet::new();
-            if let Some(collaborators) = &repos_old[repo_name].external_collaborators {
+            if let Some(collaborators) = &repos_old[repo_name].collaborators {
                 collaborators_old = collaborators.iter().map(|(name, _)| name).collect();
             }
             let mut collaborators_new = HashSet::new();
-            if let Some(collaborators) = &repos_new[repo_name].external_collaborators {
+            if let Some(collaborators) = &repos_new[repo_name].collaborators {
                 collaborators_new = collaborators.iter().map(|(name, _)| name).collect();
             }
             for user_name in collaborators_new.difference(&collaborators_old) {
@@ -190,7 +266,8 @@ impl State {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Repository {
     pub name: String,
-    pub external_collaborators: Option<HashMap<UserName, Role>>,
+    #[serde(alias = "external_collaborators")]
+    pub collaborators: Option<HashMap<UserName, Role>>,
     pub teams: Option<HashMap<TeamName, Role>>,
     pub visibility: Option<Visibility>,
 }
@@ -219,6 +296,34 @@ impl fmt::Display for Role {
     }
 }
 
+impl From<Option<RepositoryPermissions>> for Role {
+    fn from(permissions: Option<RepositoryPermissions>) -> Self {
+        match permissions {
+            Some(p) if p.admin => Role::Admin,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.pull => Role::Read,
+            Some(_) => Role::default(),
+            None => Role::default(),
+        }
+    }
+}
+
+impl From<Option<TeamPermissions>> for Role {
+    fn from(permissions: Option<TeamPermissions>) -> Self {
+        match permissions {
+            Some(p) if p.admin => Role::Admin,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.pull => Role::Read,
+            Some(_) => Role::default(),
+            None => Role::default(),
+        }
+    }
+}
+
 /// Repository visibility.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -233,6 +338,16 @@ impl fmt::Display for Visibility {
         match self {
             Visibility::Private => write!(f, "private"),
             Visibility::Public => write!(f, "public"),
+        }
+    }
+}
+
+impl From<&str> for Visibility {
+    fn from(value: &str) -> Self {
+        match value {
+            "private" => Visibility::Private,
+            "public" => Visibility::Public,
+            _ => Visibility::default(),
         }
     }
 }
@@ -280,9 +395,9 @@ impl RepositoryChange {
                         }
                     }
                 }
-                if let Some(collaborators) = &repo.external_collaborators {
+                if let Some(collaborators) = &repo.collaborators {
                     if !collaborators.is_empty() {
-                        write!(s, "\n\t- External collaborators")?;
+                        write!(s, "\n\t- Collaborators")?;
                         for (user_name, role) in collaborators.iter() {
                             write!(s, "\n\t\t- **{user_name}**: *{role}*")?;
                         }
@@ -316,14 +431,14 @@ impl RepositoryChange {
             RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => {
                 write!(
                     s,
-                    "- user **{}** is now an external collaborator (role: **{}**) of repository **{}**",
+                    "- user **{}** is now a collaborator (role: **{}**) of repository **{}**",
                     user_name, role, repo_name
                 )?;
             }
             RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
                 write!(
                     s,
-                    "- user **{}** is no longer an external collaborator of repository **{}**",
+                    "- user **{}** is no longer a collaborator of repository **{}**",
                     user_name, repo_name
                 )?;
             }

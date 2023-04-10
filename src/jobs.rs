@@ -90,7 +90,12 @@ impl Handler {
     /// Reconcile job handler.
     #[instrument(skip_all, err(Debug))]
     async fn handle_reconcile_job(&self, _pr: Option<PullRequestData>) -> Result<()> {
-        debug!("handling reconcile job (unimplemented)");
+        // Reconcile services state
+        for (service_name, service_handler) in &self.services {
+            debug!(service_name, "reconciling state");
+            service_handler.reconcile().await?;
+        }
+
         Ok(())
     }
 
