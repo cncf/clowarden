@@ -1,7 +1,8 @@
 use super::{legacy, service::DynSvc};
 use crate::{
-    directory::{self, Change, Directory, Team, TeamName, UserName},
+    directory::{Directory, DirectoryChange, Team, TeamName, UserName},
     github::DynGH,
+    services::Change,
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
@@ -118,7 +119,9 @@ impl State {
                     // We are not interested in users' changes
                     !matches!(
                         change,
-                        Change::UserAdded(_) | Change::UserRemoved(_) | Change::UserUpdated(_)
+                        DirectoryChange::UserAdded(_)
+                            | DirectoryChange::UserRemoved(_)
+                            | DirectoryChange::UserUpdated(_)
                     )
                 })
                 .collect(),
@@ -355,7 +358,7 @@ impl From<&str> for Visibility {
 /// Represents the changes between two states.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Changes {
-    pub directory: Vec<directory::Change>,
+    pub directory: Vec<DirectoryChange>,
     pub repositories: Vec<RepositoryChange>,
 }
 
@@ -374,9 +377,10 @@ pub(crate) enum RepositoryChange {
     VisibilityUpdated(RepositoryName, Visibility),
 }
 
-impl RepositoryChange {
-    /// Format change to be used on a template.
-    pub(crate) fn template_format(&self) -> Result<String> {
+#[typetag::serde]
+impl Change for RepositoryChange {
+    /// [Change::template_format]
+    fn template_format(&self) -> Result<String> {
         let mut s = String::new();
 
         match self {

@@ -1,6 +1,6 @@
 use self::{service::DynSvc, state::State};
-use super::{ActionsSummary, BaseRefConfigStatus, ChangesSummary, ServiceHandler};
-use crate::{directory::Change, github::DynGH};
+use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
+use crate::{directory::DirectoryChange, github::DynGH, services::ChangeApplied};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use config::Config;
@@ -27,25 +27,31 @@ impl Handler {
 
 #[async_trait]
 impl ServiceHandler for Handler {
-    /// [ServiceHandler::get_state_changes_summary]
+    /// [ServiceHandler::get_changes_summary]
     async fn get_changes_summary(&self, head_ref: &str) -> Result<ChangesSummary> {
         let head_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), Some(head_ref)).await?;
-        match State::new_from_config(self.cfg.clone(), self.gh.clone(), None).await {
-            Ok(base_state) => {
-                let state_changes = base_state
-                    .changes(&head_state)
-                    .repositories
-                    .into_iter()
-                    .map(|change| change.template_format().unwrap())
-                    .collect();
-                return Ok((state_changes, BaseRefConfigStatus::Valid));
-            }
-            Err(_) => Ok((vec![], BaseRefConfigStatus::Invalid)),
-        }
+        let (changes, base_ref_config_status) =
+            match State::new_from_config(self.cfg.clone(), self.gh.clone(), None).await {
+                Ok(base_state) => {
+                    let changes = base_state
+                        .changes(&head_state)
+                        .repositories
+                        .into_iter()
+                        .map(|change| Box::new(change) as DynChange)
+                        .collect();
+                    (changes, BaseRefConfigStatus::Valid)
+                }
+                Err(_) => (vec![], BaseRefConfigStatus::Invalid),
+            };
+
+        Ok(ChangesSummary {
+            changes,
+            base_ref_config_status,
+        })
     }
 
     /// [ServiceHandler::reconcile]
-    async fn reconcile(&self) -> Result<ActionsSummary> {
+    async fn reconcile(&self) -> Result<ChangesApplied> {
         // Get changes between the current and the desired state
         let current_state = State::new_from_service(self.svc.clone())
             .await
@@ -54,19 +60,21 @@ impl ServiceHandler for Handler {
             .await
             .context("error getting desired state from configuration")?;
         let changes = current_state.changes(&desired_state);
-        debug!(?changes);
+        debug!(?changes, "changes between the current and the desired state");
 
-        // Execute actions needed to match desired state
-        for change in changes.directory {
-            match change {
-                Change::TeamAdded(_) => {}
-                Change::TeamRemoved(team_name) => {
-                    self.svc.remove_team(&team_name).await?;
-                }
-                _ => {}
-            }
+        // Apply changes needed to match desired state
+        let mut changes_applied = vec![];
+        for change in changes.directory.into_iter() {
+            let err = match &change {
+                DirectoryChange::TeamRemoved(team_name) => self.svc.remove_team(team_name).await.err(),
+                _ => None,
+            };
+            changes_applied.push(ChangeApplied {
+                change: Box::new(change),
+                error: err.map(|e| e.to_string()),
+            })
         }
 
-        Ok(vec![])
+        Ok(changes_applied)
     }
 }

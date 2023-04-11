@@ -4,28 +4,27 @@
 
 ## Configuration changes
 
-{% let (directory_changes, directory_base_ref_config_status) = directory_changes %}
-{%- if !directory_changes.is_empty() || directory_base_ref_config_status.is_invalid() %}
+{%- if !directory_changes.changes.is_empty() || directory_changes.base_ref_config_status.is_invalid() %}
 
 ### Directory
 
-{%- if directory_base_ref_config_status.is_invalid() %}
+{%- if directory_changes.base_ref_config_status.is_invalid() %}
 The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
 {% endif %}
-{% for change in directory_changes %}
+{% for change in directory_changes.changes %}
 {{- change.template_format().unwrap() }}
 {% endfor %}
 {% endif %}
 
-{%- for (service_name, (service_changes, base_ref_config_status)) in services_changes -%}
-{%- if !service_changes.is_empty() || base_ref_config_status.is_invalid() %}
+{%- for (service_name, service_changes) in services_changes -%}
+{%- if !service_changes.changes.is_empty() || service_changes.base_ref_config_status.is_invalid() %}
 ### {{ service_name }}
-{%- if base_ref_config_status.is_invalid() %}
+{%- if service_changes.base_ref_config_status.is_invalid() %}
 The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
 {% endif %}
-{%- if !service_changes.is_empty() %}
-{% for change in service_changes %}
-{{ change }}
+{%- if !service_changes.changes.is_empty() %}
+{% for change in service_changes.changes %}
+{{ change.template_format().unwrap() }}
 {%- endfor %}
 {% endif %}
 {% endif %}

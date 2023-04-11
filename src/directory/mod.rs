@@ -1,4 +1,7 @@
-use crate::{github::DynGH, services::BaseRefConfigStatus};
+use crate::{
+    github::DynGH,
+    services::{BaseRefConfigStatus, Change, ChangesSummary, DynChange},
+};
 use anyhow::{format_err, Context, Result};
 use config::Config;
 use lazy_static::lazy_static;
@@ -25,9 +28,6 @@ pub(crate) type UserName = String;
 
 /// Type alias to represent a user full name.
 pub(crate) type UserFullName = String;
-
-/// Type alias to represent some directory changes.
-pub(crate) type ChangesSummary = (Vec<Change>, BaseRefConfigStatus);
 
 /// Directory configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -62,18 +62,26 @@ impl Directory {
         head_ref: &str,
     ) -> Result<ChangesSummary> {
         let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
-        let changes_summary = match Directory::new_from_config(cfg, gh, None).await {
-            Ok(directory_base) => (
-                directory_base.changes(&directory_head),
-                BaseRefConfigStatus::Valid,
-            ),
+        let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
+            Ok(directory_base) => {
+                let changes = directory_base
+                    .changes(&directory_head)
+                    .into_iter()
+                    .map(|change| Box::new(change) as DynChange)
+                    .collect();
+                (changes, BaseRefConfigStatus::Valid)
+            }
             Err(_) => (vec![], BaseRefConfigStatus::Invalid),
         };
-        Ok(changes_summary)
+
+        Ok(ChangesSummary {
+            changes,
+            base_ref_config_status,
+        })
     }
 
     /// Returns the changes detected on the new directory provided.
-    pub(crate) fn changes(&self, new: &Directory) -> Vec<Change> {
+    pub(crate) fn changes(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 
         // Teams
@@ -85,11 +93,11 @@ impl Directory {
         let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
         let mut teams_added: Vec<&TeamName> = vec![];
         for team_name in teams_names_new.difference(&teams_names_old) {
-            changes.push(Change::TeamAdded(teams_new[*team_name].clone()));
+            changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
             teams_added.push(team_name);
         }
         for team_name in teams_names_old.difference(&teams_names_new) {
-            changes.push(Change::TeamRemoved(team_name.to_string()));
+            changes.push(DirectoryChange::TeamRemoved(team_name.to_string()));
         }
 
         // Teams maintainers and members added/removed
@@ -104,13 +112,13 @@ impl Directory {
             let maintainers_old: HashSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
             let maintainers_new: HashSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
             for user_name in maintainers_new.difference(&maintainers_old) {
-                changes.push(Change::TeamMaintainerAdded(
+                changes.push(DirectoryChange::TeamMaintainerAdded(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
             for user_name in maintainers_old.difference(&maintainers_new) {
-                changes.push(Change::TeamMaintainerRemoved(
+                changes.push(DirectoryChange::TeamMaintainerRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
@@ -120,13 +128,13 @@ impl Directory {
             let members_old: HashSet<&UserName> = teams_old[team_name].members.iter().collect();
             let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
             for user_name in members_new.difference(&members_old) {
-                changes.push(Change::TeamMemberAdded(
+                changes.push(DirectoryChange::TeamMemberAdded(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
             for user_name in members_old.difference(&members_new) {
-                changes.push(Change::TeamMemberRemoved(
+                changes.push(DirectoryChange::TeamMemberRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
@@ -142,11 +150,11 @@ impl Directory {
         let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
         let mut users_added: Vec<&UserFullName> = vec![];
         for full_name in users_fullnames_new.difference(&users_fullnames_old) {
-            changes.push(Change::UserAdded(full_name.to_string()));
+            changes.push(DirectoryChange::UserAdded(full_name.to_string()));
             users_added.push(full_name);
         }
         for full_name in users_fullnames_old.difference(&users_fullnames_new) {
-            changes.push(Change::UserRemoved(full_name.to_string()));
+            changes.push(DirectoryChange::UserRemoved(full_name.to_string()));
         }
 
         // Users updated
@@ -159,7 +167,7 @@ impl Directory {
 
             let user_old = &users_old[full_name];
             if user_new != user_old {
-                changes.push(Change::UserUpdated(full_name.to_string()));
+                changes.push(DirectoryChange::UserUpdated(full_name.to_string()));
             }
         }
 
@@ -273,7 +281,7 @@ pub(crate) struct User {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Change {
+pub(crate) enum DirectoryChange {
     TeamAdded(Team),
     TeamRemoved(TeamName),
     TeamMaintainerAdded(TeamName, UserName),
@@ -285,13 +293,14 @@ pub(crate) enum Change {
     UserUpdated(UserFullName),
 }
 
-impl Change {
-    /// Format change to be used on a template.
-    pub(crate) fn template_format(&self) -> Result<String> {
+#[typetag::serde]
+impl Change for DirectoryChange {
+    /// [Change::template_format]
+    fn template_format(&self) -> Result<String> {
         let mut s = String::new();
 
         match self {
-            Change::TeamAdded(team) => {
+            DirectoryChange::TeamAdded(team) => {
                 write!(s, "- team **{}** has been *added*", team.name)?;
                 if !team.maintainers.is_empty() {
                     write!(s, "\n\t- Maintainers")?;
@@ -306,34 +315,34 @@ impl Change {
                     }
                 }
             }
-            Change::TeamRemoved(team_name) => {
+            DirectoryChange::TeamRemoved(team_name) => {
                 write!(s, "- team **{team_name}** has been *removed*")?;
             }
-            Change::TeamMaintainerAdded(team_name, user_name) => {
+            DirectoryChange::TeamMaintainerAdded(team_name, user_name) => {
                 write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**",)?;
             }
-            Change::TeamMaintainerRemoved(team_name, user_name) => {
+            DirectoryChange::TeamMaintainerRemoved(team_name, user_name) => {
                 write!(
                     s,
                     "- **{user_name}** is no longer a maintainer of team **{team_name}**",
                 )?;
             }
-            Change::TeamMemberAdded(team_name, user_name) => {
+            DirectoryChange::TeamMemberAdded(team_name, user_name) => {
                 write!(s, "- **{user_name}** is now a member of team **{team_name}**")?;
             }
-            Change::TeamMemberRemoved(team_name, user_name) => {
+            DirectoryChange::TeamMemberRemoved(team_name, user_name) => {
                 write!(
                     s,
                     "- **{user_name}** is no longer a member of team **{team_name}**",
                 )?;
             }
-            Change::UserAdded(full_name) => {
+            DirectoryChange::UserAdded(full_name) => {
                 write!(s, "- user **{full_name}** has been *added*")?;
             }
-            Change::UserRemoved(full_name) => {
+            DirectoryChange::UserRemoved(full_name) => {
                 write!(s, "- user **{full_name}** has been *removed*")?;
             }
-            Change::UserUpdated(full_name) => {
+            DirectoryChange::UserUpdated(full_name) => {
                 write!(s, "- user **{full_name}** details have been *updated*")?;
             }
         }

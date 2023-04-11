@@ -2,7 +2,7 @@ use crate::{
     directory::Directory,
     github::{self, DynGH},
     multierror::MultiError,
-    services::{BaseRefConfigStatus, ChangesSummary, DynServiceHandler, ServiceName},
+    services::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynServiceHandler, ServiceName},
     tmpl,
 };
 use anyhow::{Error, Result};
@@ -90,10 +90,24 @@ impl Handler {
     /// Reconcile job handler.
     #[instrument(skip_all, err(Debug))]
     async fn handle_reconcile_job(&self, _pr: Option<PullRequestData>) -> Result<()> {
+        let mut changes_applied: HashMap<ServiceName, ChangesApplied> = HashMap::new();
+
         // Reconcile services state
         for (service_name, service_handler) in &self.services {
             debug!(service_name, "reconciling state");
-            service_handler.reconcile().await?;
+            changes_applied.insert(service_name, service_handler.reconcile().await?);
+        }
+
+        // Track changes applied
+        for (service_name, changes_applied) in changes_applied {
+            for entry in changes_applied {
+                debug!(
+                    service = service_name,
+                    change = serde_json::to_string(&entry.change)?,
+                    error = entry.error,
+                    "change applied"
+                );
+            }
         }
 
         Ok(())
@@ -110,7 +124,10 @@ impl Handler {
                 Ok(changes) => changes,
                 Err(err) => {
                     merr.push(err);
-                    (vec![], BaseRefConfigStatus::Unknown)
+                    ChangesSummary {
+                        changes: vec![],
+                        base_ref_config_status: BaseRefConfigStatus::Unknown,
+                    }
                 }
             };
 

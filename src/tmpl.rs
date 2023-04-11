@@ -1,13 +1,10 @@
-use crate::{
-    directory,
-    services::{self, ServiceName},
-};
+use crate::services::{ChangesSummary, ServiceName};
 use anyhow::Error;
 use askama::Template;
 use std::collections::HashMap;
 
 /// Template for the validation failed comment.
-#[derive(Debug, Template)]
+#[derive(Template)]
 #[template(path = "validation-failed.md")]
 pub(crate) struct ValidationFailed<'a> {
     err: &'a Error,
@@ -20,17 +17,17 @@ impl<'a> ValidationFailed<'a> {
 }
 
 /// Template for the validation succeeded comment.
-#[derive(Debug, Template)]
+#[derive(Template)]
 #[template(path = "validation-succeeded.md")]
 pub(crate) struct ValidationSucceeded<'a> {
-    directory_changes: &'a directory::ChangesSummary,
-    services_changes: &'a HashMap<ServiceName, services::ChangesSummary>,
+    directory_changes: &'a ChangesSummary,
+    services_changes: &'a HashMap<ServiceName, ChangesSummary>,
 }
 
 impl<'a> ValidationSucceeded<'a> {
     pub(crate) fn new(
-        directory_changes: &'a directory::ChangesSummary,
-        services_changes: &'a HashMap<ServiceName, services::ChangesSummary>,
+        directory_changes: &'a ChangesSummary,
+        services_changes: &'a HashMap<ServiceName, ChangesSummary>,
     ) -> Self {
         Self {
             directory_changes,
