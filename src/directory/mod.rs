@@ -44,9 +44,8 @@ impl Directory {
         config_ref: Option<&str>,
     ) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
-            let legacy_cfg = legacy::Cfg::get(cfg, gh, config_ref)
-                .await
-                .context("invalid directory configuration")?;
+            let legacy_cfg =
+                legacy::Cfg::get(cfg, gh, config_ref).await.context("invalid directory configuration")?;
             return Ok(Self::from(legacy_cfg));
         }
         Err(format_err!(
@@ -65,7 +64,7 @@ impl Directory {
         let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
             Ok(directory_base) => {
                 let changes = directory_base
-                    .changes(&directory_head)
+                    .diff(&directory_head)
                     .into_iter()
                     .map(|change| Box::new(change) as DynChange)
                     .collect();
@@ -80,8 +79,9 @@ impl Directory {
         })
     }
 
-    /// Returns the changes detected on the new directory provided.
-    pub(crate) fn changes(&self, new: &Directory) -> Vec<DirectoryChange> {
+    /// Returns the changes detected between the current and the new directory
+    /// provided.
+    pub(crate) fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 
         // Teams

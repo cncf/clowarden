@@ -6,7 +6,9 @@ use crate::{
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
-use octorust::types::{RepositoryPermissions, TeamPermissions};
+use octorust::types::{
+    RepositoryPermissions, TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -32,7 +34,15 @@ impl State {
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
                 .context("invalid github service configuration")?
-                .repositories;
+                .repositories
+                .into_iter()
+                .map(|mut r| {
+                    if r.visibility.is_none() {
+                        r.visibility = Some(Visibility::default());
+                    }
+                    r
+                })
+                .collect();
             let state = State {
                 directory,
                 repositories,
@@ -52,19 +62,10 @@ impl State {
 
         // Teams
         for team in svc.list_teams().await? {
-            let maintainers = svc
-                .list_team_maintainers(&team.slug)
-                .await?
-                .into_iter()
-                .map(|u| u.login)
-                .collect();
+            let maintainers =
+                svc.list_team_maintainers(&team.slug).await?.into_iter().map(|u| u.login).collect();
 
-            let members = svc
-                .list_team_members(&team.slug)
-                .await?
-                .into_iter()
-                .map(|u| u.login)
-                .collect();
+            let members = svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
 
             state.directory.teams.push(Team {
                 name: team.slug,
@@ -108,12 +109,13 @@ impl State {
         Ok(state)
     }
 
-    /// Returns the changes detected on the new state provided.
-    pub(crate) fn changes(&self, new: &State) -> Changes {
+    /// Returns the changes detected between the current and the new state
+    /// provided.
+    pub(crate) fn diff(&self, new: &State) -> Changes {
         Changes {
             directory: self
                 .directory
-                .changes(&new.directory)
+                .diff(&new.directory)
                 .into_iter()
                 .filter(|change| {
                     // We are not interested in users' changes
@@ -141,24 +143,18 @@ impl State {
         let team_role = |collection: &HashMap<&RepositoryName, &Repository>,
                          repo_name: &RepositoryName,
                          team_name: &TeamName| {
-            collection[repo_name]
-                .teams
-                .as_ref()
-                .unwrap()
-                .get(&team_name.to_string())
-                .map(|r| r.to_owned())
-                .unwrap_or_default()
+            if let Some(teams) = collection[repo_name].teams.as_ref() {
+                return teams.get(&team_name.to_string()).map(|r| r.to_owned()).unwrap_or_default();
+            }
+            Role::default()
         };
         let user_role = |collection: &HashMap<&RepositoryName, &Repository>,
                          repo_name: &RepositoryName,
                          user_name: &UserName| {
-            collection[repo_name]
-                .collaborators
-                .as_ref()
-                .unwrap()
-                .get(&user_name.to_string())
-                .map(|r| r.to_owned())
-                .unwrap_or_default()
+            if let Some(collaborators) = collection[repo_name].collaborators.as_ref() {
+                return collaborators.get(&user_name.to_string()).map(|r| r.to_owned()).unwrap_or_default();
+            }
+            Role::default()
         };
 
         // Repositories added/removed
@@ -166,11 +162,11 @@ impl State {
         let repos_names_new: HashSet<&RepositoryName> = repos_new.keys().copied().collect();
         let mut repos_added: Vec<&TeamName> = vec![];
         for repo_name in repos_names_new.difference(&repos_names_old) {
-            changes.push(RepositoryChange::Added(repos_new[*repo_name].clone()));
+            changes.push(RepositoryChange::RepositoryAdded(repos_new[*repo_name].clone()));
             repos_added.push(repo_name);
         }
         for repo_name in repos_names_old.difference(&repos_names_new) {
-            changes.push(RepositoryChange::Removed(repo_name.to_string()));
+            changes.push(RepositoryChange::RepositoryRemoved(repo_name.to_string()));
         }
 
         // Repositories teams and collaborators added/removed
@@ -205,7 +201,7 @@ impl State {
             }
             for team_name in &teams_new {
                 let role_new = team_role(&repos_new, repo_name, team_name);
-                let role_old = team_role(&repos_new, repo_name, team_name);
+                let role_old = team_role(&repos_old, repo_name, team_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::TeamRoleUpdated(
                         repo_name.to_string(),
@@ -239,7 +235,7 @@ impl State {
             }
             for user_name in &collaborators_new {
                 let role_new = user_role(&repos_new, repo_name, user_name);
-                let role_old = user_role(&repos_new, repo_name, user_name);
+                let role_old = user_role(&repos_old, repo_name, user_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::CollaboratorRoleUpdated(
                         repo_name.to_string(),
@@ -313,6 +309,18 @@ impl From<Option<RepositoryPermissions>> for Role {
     }
 }
 
+impl From<&Role> for TeamsAddUpdateRepoPermissionsInOrgRequestPermission {
+    fn from(role: &Role) -> Self {
+        match role {
+            Role::Admin => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Admin,
+            Role::Maintain => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Maintain,
+            Role::Write => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Push,
+            Role::Triage => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Triage,
+            Role::Read => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Pull,
+        }
+    }
+}
+
 impl From<Option<TeamPermissions>> for Role {
     fn from(permissions: Option<TeamPermissions>) -> Self {
         match permissions {
@@ -366,8 +374,8 @@ pub(crate) struct Changes {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RepositoryChange {
-    Added(Repository),
-    Removed(RepositoryName),
+    RepositoryAdded(Repository),
+    RepositoryRemoved(RepositoryName),
     TeamAdded(RepositoryName, TeamName, Role),
     TeamRemoved(RepositoryName, TeamName),
     TeamRoleUpdated(RepositoryName, TeamName, Role),
@@ -384,7 +392,7 @@ impl Change for RepositoryChange {
         let mut s = String::new();
 
         match self {
-            RepositoryChange::Added(repo) => {
+            RepositoryChange::RepositoryAdded(repo) => {
                 write!(
                     s,
                     "- repository **{}** has been *added* (visibility: **{}**)",
@@ -408,7 +416,7 @@ impl Change for RepositoryChange {
                     }
                 }
             }
-            RepositoryChange::Removed(repo_name) => {
+            RepositoryChange::RepositoryRemoved(repo_name) => {
                 write!(s, "- repository **{}** has been *removed*", repo_name)?;
             }
             RepositoryChange::TeamAdded(repo_name, team_name, role) => {

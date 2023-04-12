@@ -96,11 +96,13 @@ impl GHApi {
 
 #[async_trait]
 impl GH for GHApi {
+    /// [GH::create_check_run]
     async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()> {
         _ = self.client.checks().create(&self.org, &self.repo, body).await?;
         Ok(())
     }
 
+    /// [GH::get_file_content]
     async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String> {
         let ref_ = ref_.unwrap_or(&self.branch);
         let mut content = self
@@ -116,6 +118,7 @@ impl GH for GHApi {
         Ok(decoded_content)
     }
 
+    /// [GH::list_pr_files]
     async fn list_pr_files(&self, pr_number: i64) -> Result<Vec<FileName>> {
         let files = self
             .client
@@ -128,6 +131,7 @@ impl GH for GHApi {
         Ok(files)
     }
 
+    /// [GH::post_comment]
     async fn post_comment(&self, pr_number: i64, body: &str) -> Result<CommentId> {
         let body = &PullsUpdateReviewRequest {
             body: body.to_string(),

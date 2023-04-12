@@ -1,4 +1,7 @@
-use self::{service::DynSvc, state::State};
+use self::{
+    service::DynSvc,
+    state::{RepositoryChange, State},
+};
 use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
 use crate::{directory::DirectoryChange, github::DynGH, services::ChangeApplied};
 use anyhow::{Context, Result};
@@ -34,7 +37,7 @@ impl ServiceHandler for Handler {
             match State::new_from_config(self.cfg.clone(), self.gh.clone(), None).await {
                 Ok(base_state) => {
                     let changes = base_state
-                        .changes(&head_state)
+                        .diff(&head_state)
                         .repositories
                         .into_iter()
                         .map(|change| Box::new(change) as DynChange)
@@ -59,15 +62,67 @@ impl ServiceHandler for Handler {
         let desired_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), None)
             .await
             .context("error getting desired state from configuration")?;
-        let changes = current_state.changes(&desired_state);
+        let changes = current_state.diff(&desired_state);
         debug!(?changes, "changes between the current and the desired state");
 
         // Apply changes needed to match desired state
         let mut changes_applied = vec![];
+
+        // Apply directory changes
         for change in changes.directory.into_iter() {
             let err = match &change {
+                DirectoryChange::TeamAdded(team) => self.svc.add_team(team).await.err(),
                 DirectoryChange::TeamRemoved(team_name) => self.svc.remove_team(team_name).await.err(),
-                _ => None,
+                DirectoryChange::TeamMaintainerAdded(team_name, user_name) => {
+                    self.svc.add_team_maintainer(team_name, user_name).await.err()
+                }
+                DirectoryChange::TeamMaintainerRemoved(team_name, user_name) => {
+                    self.svc.remove_team_maintainer(team_name, user_name).await.err()
+                }
+                DirectoryChange::TeamMemberAdded(team_name, user_name) => {
+                    self.svc.add_team_member(team_name, user_name).await.err()
+                }
+                DirectoryChange::TeamMemberRemoved(team_name, user_name) => {
+                    self.svc.remove_team_member(team_name, user_name).await.err()
+                }
+                DirectoryChange::UserAdded(_) => continue,
+                DirectoryChange::UserRemoved(_) => continue,
+                DirectoryChange::UserUpdated(_) => continue,
+            };
+            changes_applied.push(ChangeApplied {
+                change: Box::new(change),
+                error: err.map(|e| e.to_string()),
+            })
+        }
+
+        // Apply repositories changes
+        for change in changes.repositories.into_iter() {
+            let err = match &change {
+                RepositoryChange::RepositoryAdded(repo) => self.svc.add_repository(repo).await.err(),
+                RepositoryChange::RepositoryRemoved(repo_name) => {
+                    self.svc.remove_repository(repo_name).await.err()
+                }
+                RepositoryChange::TeamAdded(repo_name, team_name, role) => {
+                    self.svc.add_repository_team(repo_name, team_name, role).await.err()
+                }
+                RepositoryChange::TeamRemoved(repo_name, team_name) => {
+                    self.svc.remove_repository_team(repo_name, team_name).await.err()
+                }
+                RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => {
+                    self.svc.update_repository_team_role(repo_name, team_name, role).await.err()
+                }
+                RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => {
+                    self.svc.add_repository_collaborator(repo_name, user_name, role).await.err()
+                }
+                RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
+                    self.svc.remove_repository_collaborator(repo_name, user_name).await.err()
+                }
+                RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
+                    self.svc.update_repository_collaborator_role(repo_name, user_name, role).await.err()
+                }
+                RepositoryChange::VisibilityUpdated(repo_name, visibility) => {
+                    self.svc.update_repository_visibility(repo_name, visibility).await.err()
+                }
             };
             changes_applied.push(ChangeApplied {
                 change: Box::new(change),

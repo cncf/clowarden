@@ -101,11 +101,16 @@ impl Handler {
         // Track changes applied
         for (service_name, changes_applied) in changes_applied {
             for entry in changes_applied {
+                let msg = if entry.error.is_none() {
+                    "change applied"
+                } else {
+                    "something went wrong applying change"
+                };
                 debug!(
                     service = service_name,
                     change = serde_json::to_string(&entry.change)?,
                     error = entry.error,
-                    "change applied"
+                    "{msg}"
                 );
             }
         }
