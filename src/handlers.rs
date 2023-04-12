@@ -13,6 +13,7 @@ use axum::{
 };
 use config::Config;
 use hmac::{Hmac, Mac};
+use octorust::types::JobStatus;
 use sha2::Sha256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -114,9 +115,20 @@ async fn event(
             // Take action on event
             match event.action {
                 PullRequestEventAction::Opened | PullRequestEventAction::Synchronize => {
+                    // Create validation in-progress check run
+                    let check_body = github::new_checks_create_request(
+                        event.pull_request.head.sha.clone(),
+                        Some(JobStatus::InProgress),
+                        None,
+                        "Validating changes",
+                    );
+                    _ = gh.create_check_run(&check_body).await;
+
+                    // Enqueue validation job
                     _ = jobs_tx.send(Job::Validate(event.pull_request));
                 }
                 PullRequestEventAction::Closed if event.pull_request.merged => {
+                    // Enqueue reconcile job
                     _ = jobs_tx.send(Job::Reconcile(Some(event.pull_request)));
                 }
                 _ => {}
