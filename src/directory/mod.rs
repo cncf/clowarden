@@ -91,10 +91,8 @@ impl Directory {
         // Teams added/removed
         let teams_names_old: HashSet<&TeamName> = teams_old.keys().copied().collect();
         let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
-        let mut teams_added: Vec<&TeamName> = vec![];
         for team_name in teams_names_new.difference(&teams_names_old) {
             changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
-            teams_added.push(team_name);
         }
         for team_name in teams_names_old.difference(&teams_names_new) {
             changes.push(DirectoryChange::TeamRemoved(team_name.to_string()));
@@ -102,9 +100,8 @@ impl Directory {
 
         // Teams maintainers and members added/removed
         for team_name in teams_new.keys() {
-            if teams_added.contains(team_name) {
-                // When a team is added the change includes the full team, so
-                // we don't want to track additional changes for it
+            if !teams_names_old.contains(team_name) {
+                // New team, no need to track additional changes on it
                 continue;
             }
 

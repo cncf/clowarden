@@ -127,12 +127,12 @@ impl State {
                     )
                 })
                 .collect(),
-            repositories: State::repositories_changes(&self.repositories, &new.repositories),
+            repositories: State::repositories_diff(&self.repositories, &new.repositories),
         }
     }
 
     /// Returns the changes detected between two groups of repositories.
-    fn repositories_changes(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
+    fn repositories_diff(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
         // Repositories
@@ -160,10 +160,8 @@ impl State {
         // Repositories added/removed
         let repos_names_old: HashSet<&RepositoryName> = repos_old.keys().copied().collect();
         let repos_names_new: HashSet<&RepositoryName> = repos_new.keys().copied().collect();
-        let mut repos_added: Vec<&TeamName> = vec![];
         for repo_name in repos_names_new.difference(&repos_names_old) {
             changes.push(RepositoryChange::RepositoryAdded(repos_new[*repo_name].clone()));
-            repos_added.push(repo_name);
         }
         for repo_name in repos_names_old.difference(&repos_names_new) {
             changes.push(RepositoryChange::RepositoryRemoved(repo_name.to_string()));
@@ -171,9 +169,8 @@ impl State {
 
         // Repositories teams and collaborators added/removed
         for repo_name in repos_new.keys() {
-            if repos_added.contains(repo_name) {
-                // When a repo is added the change includes the full repo, so
-                // we don't want to track additional changes for it
+            if !repos_names_old.contains(repo_name) {
+                // New repo, no need to track additional changes on it
                 continue;
             }
 
@@ -200,6 +197,10 @@ impl State {
                 ))
             }
             for team_name in &teams_new {
+                if !teams_old.contains(team_name) {
+                    // New team, no need to track additional changes on it
+                    continue;
+                }
                 let role_new = team_role(&repos_new, repo_name, team_name);
                 let role_old = team_role(&repos_old, repo_name, team_name);
                 if role_new != role_old {
@@ -234,6 +235,10 @@ impl State {
                 ))
             }
             for user_name in &collaborators_new {
+                if !collaborators_old.contains(user_name) {
+                    // New collaborator, no need to track additional changes on it
+                    continue;
+                }
                 let role_new = user_role(&repos_new, repo_name, user_name);
                 let role_old = user_role(&repos_old, repo_name, user_name);
                 if role_new != role_old {
