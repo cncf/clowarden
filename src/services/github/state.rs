@@ -2,6 +2,7 @@ use super::{legacy, service::DynSvc};
 use crate::{
     directory::{Directory, DirectoryChange, Team, TeamName, UserName},
     github::DynGH,
+    multierror::MultiError,
     services::Change,
 };
 use anyhow::{format_err, Context, Result};
@@ -47,6 +48,7 @@ impl State {
                 directory,
                 repositories,
             };
+            state.validate()?;
             return Ok(state);
         }
         Err(format_err!(
@@ -129,6 +131,39 @@ impl State {
                 .collect(),
             repositories: State::repositories_diff(&self.repositories, &new.repositories),
         }
+    }
+
+    /// Validate state.
+    fn validate(&self) -> Result<()> {
+        let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
+
+        for (i, repo) in self.repositories.iter().enumerate() {
+            // Define id to be used in subsequent error messages. When
+            // available, it'll be the repo name. Otherwise we'll use its
+            // index on the list.
+            let id = if repo.name.is_empty() {
+                format!("{}", i)
+            } else {
+                repo.name.clone()
+            };
+
+            // Check teams used in repositories exist in directory
+            let teams_in_directory: Vec<&TeamName> = self.directory.teams.iter().map(|t| &t.name).collect();
+            if let Some(teams) = &repo.teams {
+                for team_name in teams.keys() {
+                    if !teams_in_directory.contains(&team_name) {
+                        merr.push(format_err!(
+                            "repo[{id}]: team {team_name} does not exist in directory"
+                        ));
+                    }
+                }
+            }
+        }
+
+        if merr.contains_errors() {
+            return Err(merr.into());
+        }
+        Ok(())
     }
 
     /// Returns the changes detected between two groups of repositories.
