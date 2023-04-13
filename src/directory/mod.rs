@@ -79,8 +79,8 @@ impl Directory {
         })
     }
 
-    /// Returns the changes detected between the current and the new directory
-    /// provided.
+    /// Returns the changes detected between this directory instance and the
+    /// new one provided.
     pub(crate) fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 

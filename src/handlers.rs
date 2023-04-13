@@ -120,9 +120,11 @@ async fn event(
                         event.pull_request.head.sha.clone(),
                         Some(JobStatus::InProgress),
                         None,
-                        "Validating changes",
+                        "Validating configuration changes",
                     );
-                    _ = gh.create_check_run(&check_body).await;
+                    if let Err(err) = gh.create_check_run(&check_body).await {
+                        error!(?err, "error creating validation in-progress check run");
+                    }
 
                     // Enqueue validation job
                     _ = jobs_tx.send(Job::Validate(event.pull_request));

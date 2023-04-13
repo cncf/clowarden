@@ -1,4 +1,4 @@
-## Configuration validation failed
+## Validation failed
 
 #### ‼️ Some errors were found validating the configuration files
 

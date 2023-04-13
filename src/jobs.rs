@@ -16,7 +16,7 @@ use tokio::{
     task::JoinHandle,
     time::{self, MissedTickBehavior},
 };
-use tracing::{debug, instrument};
+use tracing::{debug, error, instrument};
 
 /// How often periodic reconcile jobs should be scheduled (in seconds).
 const RECONCILE_FREQUENCY: u64 = 60 * 60;
@@ -26,7 +26,7 @@ const RECONCILE_FREQUENCY: u64 = 60 * 60;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Job {
     /// A reconcile job verifies if the desired state as described in the
-    /// configuration files matches the current state in the external services,
+    /// configuration files matches the actual state in the external services,
     /// applying the necessary changes. This work is delegated on services
     /// handlers, one for each of the external services. It can be triggered
     /// periodically or manually from a pull request. When it's triggered from
@@ -89,17 +89,36 @@ impl Handler {
 
     /// Reconcile job handler.
     #[instrument(skip_all, err(Debug))]
-    async fn handle_reconcile_job(&self, _pr: Option<PullRequestData>) -> Result<()> {
+    async fn handle_reconcile_job(&self, pr: Option<PullRequestData>) -> Result<()> {
         let mut changes_applied: HashMap<ServiceName, ChangesApplied> = HashMap::new();
+        let mut errors: HashMap<ServiceName, Error> = HashMap::new();
 
         // Reconcile services state
         for (service_name, service_handler) in &self.services {
             debug!(service_name, "reconciling state");
-            changes_applied.insert(service_name, service_handler.reconcile().await?);
+            match service_handler.reconcile().await {
+                Ok(service_changes_applied) => {
+                    changes_applied.insert(service_name, service_changes_applied);
+                }
+                Err(err) => {
+                    errors.insert(service_name, err);
+                }
+            }
         }
 
-        // Track changes applied
-        for (service_name, changes_applied) in changes_applied {
+        // Post reconciliation completed comment if the job was created from a PR
+        if let Some(pr) = pr {
+            let comment_body = tmpl::ReconciliationCompleted::new(&changes_applied, &errors).render()?;
+            if let Err(err) = self.gh.post_comment(pr.number, &comment_body).await {
+                error!(?err, "error posting reconciliation comment");
+            }
+        }
+
+        // Log errors and changes applied
+        for (service_name, error) in &errors {
+            debug!(?error, service = service_name, "reconciliation failed");
+        }
+        for (service_name, changes_applied) in &changes_applied {
             for entry in changes_applied {
                 let msg = if entry.error.is_none() {
                     "change applied"

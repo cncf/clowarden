@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -13,7 +15,7 @@ pub(crate) trait ServiceHandler {
     /// defined in the configuration from the base to the head reference.
     async fn get_changes_summary(&self, head_ref: &str) -> Result<ChangesSummary>;
 
-    /// Apply the changes needed so that the current state (as defined in the
+    /// Apply the changes needed so that the actual state (as defined in the
     /// service) matches the desired state (as defined in the configuration).
     async fn reconcile(&self) -> Result<ChangesApplied>;
 }
@@ -39,7 +41,7 @@ pub(crate) struct ChangeApplied {
 
 /// Trait that defines some operations a Change implementation must support.
 #[typetag::serde(tag = "type")]
-pub(crate) trait Change {
+pub(crate) trait Change: Debug {
     /// Format change to be used on a template.
     fn template_format(&self) -> Result<String>;
 }

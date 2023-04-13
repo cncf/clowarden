@@ -1,7 +1,45 @@
-use crate::services::{ChangesSummary, ServiceName};
+use crate::services::{ChangesApplied, ChangesSummary, ServiceName};
 use anyhow::Error;
 use askama::Template;
 use std::collections::HashMap;
+
+/// Template for the reconciliation completed comment.
+#[derive(Template)]
+#[template(path = "reconciliation-completed.md")]
+pub(crate) struct ReconciliationCompleted<'a> {
+    services: Vec<ServiceName>,
+    changes_applied: &'a HashMap<ServiceName, ChangesApplied>,
+    errors: &'a HashMap<ServiceName, Error>,
+    errors_found: bool,
+}
+
+impl<'a> ReconciliationCompleted<'a> {
+    pub(crate) fn new(
+        changes_applied: &'a HashMap<ServiceName, ChangesApplied>,
+        errors: &'a HashMap<ServiceName, Error>,
+    ) -> Self {
+        let services = changes_applied.keys().chain(errors.keys()).map(|s| s.to_owned()).collect();
+        let errors_found = (|| {
+            if !errors.is_empty() {
+                return true;
+            }
+            for service_changes_applied in changes_applied.values() {
+                for change_applied in service_changes_applied {
+                    if change_applied.error.is_some() {
+                        return true;
+                    }
+                }
+            }
+            false
+        })();
+        Self {
+            services,
+            changes_applied,
+            errors,
+            errors_found,
+        }
+    }
+}
 
 /// Template for the validation failed comment.
 #[derive(Template)]

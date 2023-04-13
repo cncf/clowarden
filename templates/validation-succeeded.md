@@ -1,4 +1,4 @@
-## Configuration validation succeeded
+## Validation succeeded
 
 #### ✅ The proposed configuration changes are valid!
 
@@ -7,15 +7,13 @@
 {%- if !directory_changes.changes.is_empty() || directory_changes.base_ref_config_status.is_invalid() %}
 
 ### Directory
-
-{%- if directory_changes.base_ref_config_status.is_invalid() %}
+{% if directory_changes.base_ref_config_status.is_invalid() %}
 The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
 {% endif %}
 {% for change in directory_changes.changes %}
 {{- change.template_format().unwrap() }}
 {% endfor %}
 {% endif %}
-
 {%- for (service_name, service_changes) in services_changes -%}
 {%- if !service_changes.changes.is_empty() || service_changes.base_ref_config_status.is_invalid() %}
 ### {{ service_name }}
@@ -27,9 +25,8 @@ The configuration in the base reference is not valid, so I cannot check what has
 {{ change.template_format().unwrap() }}
 {%- endfor %}
 {% endif %}
-{% endif %}
+{%- endif %}
 {%- endfor %}
-
 ***
 
 🔸 **Please review the changes detected as they will be applied *immediately* once this PR is merged** 🔸

@@ -109,8 +109,8 @@ impl State {
         Ok(state)
     }
 
-    /// Returns the changes detected between the current and the new state
-    /// provided.
+    /// Returns the changes detected between this state instance and the new
+    /// one provided.
     pub(crate) fn diff(&self, new: &State) -> Changes {
         Changes {
             directory: self

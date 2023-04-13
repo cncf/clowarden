@@ -55,15 +55,15 @@ impl ServiceHandler for Handler {
 
     /// [ServiceHandler::reconcile]
     async fn reconcile(&self) -> Result<ChangesApplied> {
-        // Get changes between the current and the desired state
-        let current_state = State::new_from_service(self.svc.clone())
+        // Get changes between the actual and the desired state
+        let actual_state = State::new_from_service(self.svc.clone())
             .await
-            .context("error getting current state from service")?;
+            .context("error getting actual state from service")?;
         let desired_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), None)
             .await
             .context("error getting desired state from configuration")?;
-        let changes = current_state.diff(&desired_state);
-        debug!(?changes, "changes between the current and the desired state");
+        let changes = actual_state.diff(&desired_state);
+        debug!(?changes, "changes between the actual and the desired state");
 
         // Apply changes needed to match desired state
         let mut changes_applied = vec![];
