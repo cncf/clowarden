@@ -17,9 +17,6 @@ use octorust::{
 };
 use std::sync::Arc;
 
-/// Type alias to represent a Svc trait object.
-pub(crate) type DynSvc = Arc<dyn Svc + Send + Sync>;
-
 /// Trait that defines some operations a Svc implementation must support.
 #[async_trait]
 #[cfg_attr(test, automock)]
@@ -131,6 +128,9 @@ pub(crate) trait Svc {
         visibility: &Visibility,
     ) -> Result<(), ClientError>;
 }
+
+/// Type alias to represent a Svc trait object.
+pub(crate) type DynSvc = Arc<dyn Svc + Send + Sync>;
 
 /// Svc implementation backed by the GitHub API.
 pub(crate) struct SvcApi {

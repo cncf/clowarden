@@ -28,7 +28,8 @@ pub(crate) struct State {
 }
 
 impl State {
-    /// Create a new State instance from the configuration reference provided.
+    /// Create a new State instance from the configuration reference provided
+    /// (or from the base reference when none is provided).
     pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<State> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
             let directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
@@ -56,7 +57,7 @@ impl State {
         ))
     }
 
-    /// Create a new State instance from the service's state.
+    /// Create a new State instance from the service's actual state.
     pub(crate) async fn new_from_service(svc: DynSvc) -> Result<State> {
         let mut state = State::default();
 
@@ -166,7 +167,7 @@ impl State {
         Ok(())
     }
 
-    /// Returns the changes detected between two groups of repositories.
+    /// Returns the changes detected between two lists of repositories.
     fn repositories_diff(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
@@ -311,7 +312,7 @@ pub(crate) struct Repository {
     pub visibility: Option<Visibility>,
 }
 
-/// Role a user or team may have assigned.
+/// Role a user or team may have been assigned.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Role {

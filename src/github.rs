@@ -17,30 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Type alias to represent a GH trait object.
-pub(crate) type DynGH = Arc<dyn GH + Send + Sync>;
-
-/// Type alias to represent a webhook event header.
-type EventHeader = Option<HeaderValue>;
-
-/// Type alias to represent a webhook event payload.
-type EventPayload = [u8];
-
-/// Type alias to represent a comment id.
-type CommentId = i64;
-
-/// Type alias to represent a filename.
-type FileName = String;
-
-/// Name used for the check run in GitHub.
-const CHECK_RUN_NAME: &str = "CLOWarden";
-
-/// Header representing the kind of the event received.
-pub(crate) const EVENT_HEADER: &str = "X-GitHub-Event";
-
-/// Header representing the event payload signature.
-pub(crate) const SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
-
 /// Trait that defines some operations a GH implementation must support.
 #[async_trait]
 #[cfg_attr(test, automock)]
@@ -58,6 +34,15 @@ pub(crate) trait GH {
     async fn post_comment(&self, pr_number: i64, body: &str) -> Result<CommentId>;
 }
 
+/// Type alias to represent a GH trait object.
+pub(crate) type DynGH = Arc<dyn GH + Send + Sync>;
+
+/// Type alias to represent a comment id.
+type CommentId = i64;
+
+/// Type alias to represent a filename.
+type FileName = String;
+
 /// GH implementation backed by the GitHub API.
 pub(crate) struct GHApi {
     client: Client,
@@ -71,9 +56,8 @@ impl GHApi {
     pub(crate) fn new(cfg: Arc<Config>) -> Result<Self> {
         // Setup GitHub app credentials
         let app_id = cfg.get_int("githubApp.appId").unwrap();
-        let app_private_key = pem::parse(cfg.get_string("githubApp.privateKey").unwrap())?
-            .contents()
-            .to_owned();
+        let app_private_key =
+            pem::parse(cfg.get_string("githubApp.privateKey").unwrap())?.contents().to_owned();
         let credentials =
             JWTCredentials::new(app_id, app_private_key).context("error setting up credentials")?;
 
@@ -136,14 +120,16 @@ impl GH for GHApi {
         let body = &PullsUpdateReviewRequest {
             body: body.to_string(),
         };
-        let comment = self
-            .client
-            .issues()
-            .create_comment(&self.org, &self.repo, pr_number, body)
-            .await?;
+        let comment = self.client.issues().create_comment(&self.org, &self.repo, pr_number, body).await?;
         Ok(comment.id)
     }
 }
+
+/// Type alias to represent a webhook event header.
+type EventHeader = Option<HeaderValue>;
+
+/// Type alias to represent a webhook event payload.
+type EventPayload = [u8];
 
 /// Represents a GitHub webhook event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -201,6 +187,9 @@ pub(crate) enum PullRequestEventAction {
     #[serde(other)]
     Other,
 }
+
+/// Name used for the check run in GitHub.
+const CHECK_RUN_NAME: &str = "CLOWarden";
 
 /// Helper function to create a new ChecksCreateRequest instance.
 pub(crate) fn new_checks_create_request(

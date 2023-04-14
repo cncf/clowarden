@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
     if cfg.get_bool("services.github.enabled").unwrap_or_default() {
         let svc = Arc::new(services::github::service::SvcApi::new(cfg.clone())?);
         services.insert(
-            "GitHub",
+            services::github::SERVICE_NAME,
             Box::new(services::github::Handler::new(cfg.clone(), gh.clone(), svc)),
         );
     }
@@ -125,9 +125,7 @@ fn validate_config(cfg: &Config) -> Result<()> {
 async fn shutdown_signal() {
     // Setup signal handlers
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install ctrl+c signal handler");
+        signal::ctrl_c().await.expect("failed to install ctrl+c signal handler");
     };
 
     #[cfg(unix)]

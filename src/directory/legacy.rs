@@ -62,10 +62,8 @@ pub(crate) mod sheriff {
         /// Get sheriff configuration.
         pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
             let path = &cfg.get_string("config.legacy.sheriff.permissionsPath").unwrap();
-            let content = gh
-                .get_file_content(path, ref_)
-                .await
-                .context("error getting sheriff permissions file")?;
+            let content =
+                gh.get_file_content(path, ref_).await.context("error getting sheriff permissions file")?;
             let cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
                 .context("error parsing sheriff permissions file")?;
@@ -155,10 +153,7 @@ pub(crate) mod cncf {
         /// Get CNCF people configuration.
         pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
             let path = &cfg.get_string("config.legacy.cncf.peoplePath").unwrap();
-            let content = gh
-                .get_file_content(path, ref_)
-                .await
-                .context("error getting cncf people file")?;
+            let content = gh.get_file_content(path, ref_).await.context("error getting cncf people file")?;
             let cfg: Cfg = serde_json::from_str(&content)
                 .map_err(Error::new)
                 .context("error parsing cncf people file")?;

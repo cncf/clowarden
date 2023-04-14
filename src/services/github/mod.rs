@@ -14,6 +14,9 @@ mod legacy;
 pub(crate) mod service;
 mod state;
 
+/// GitHub's service name.
+pub(crate) const SERVICE_NAME: &str = "GitHub";
+
 /// GitHub's service handler.
 pub(crate) struct Handler {
     cfg: Arc<Config>,

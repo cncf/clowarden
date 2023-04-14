@@ -18,9 +18,6 @@ use tokio::{
 };
 use tracing::{debug, error, instrument};
 
-/// How often periodic reconcile jobs should be scheduled (in seconds).
-const RECONCILE_FREQUENCY: u64 = 60 * 60;
-
 /// Represents a job to be executed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,7 +165,7 @@ impl Handler {
             }
         }
 
-        // Post validation results
+        // Post validation completed comment and create check run
         let errors_found = merr.contains_errors();
         let err = Error::from(merr);
         let (comment_body, check_body) = match errors_found {
@@ -203,6 +200,9 @@ impl Handler {
         Ok(())
     }
 }
+
+/// How often periodic reconcile jobs should be scheduled (in seconds).
+const RECONCILE_FREQUENCY: u64 = 60 * 60;
 
 /// A jobs scheduler is in charge of scheduling the execution of some jobs
 /// periodically.

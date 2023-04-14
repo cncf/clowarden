@@ -21,6 +21,12 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::{error, instrument, trace};
 
+/// Header representing the kind of the event received.
+pub(crate) const GITHUB_EVENT_HEADER: &str = "X-GitHub-Event";
+
+/// Header representing the event payload signature.
+pub(crate) const GITHUB_SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
+
 /// Router's state.
 #[derive(Clone, FromRef)]
 struct RouterState {
@@ -59,7 +65,7 @@ async fn event(
 ) -> impl IntoResponse {
     // Verify payload signature
     if verify_signature(
-        headers.get(github::SIGNATURE_HEADER),
+        headers.get(GITHUB_SIGNATURE_HEADER),
         webhook_secret.as_bytes(),
         &body[..],
     )
@@ -69,7 +75,7 @@ async fn event(
     };
 
     // Parse event
-    let event_header = &headers.get(github::EVENT_HEADER).cloned();
+    let event_header = &headers.get(GITHUB_EVENT_HEADER).cloned();
     let event_payload = &body[..];
     let event = match Event::try_from((event_header, event_payload)) {
         Ok(event) => event,

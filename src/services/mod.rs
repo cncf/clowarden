@@ -1,7 +1,6 @@
-use std::fmt::Debug;
-
 use anyhow::Result;
 use async_trait::async_trait;
+use std::fmt::Debug;
 
 pub(crate) mod github;
 
@@ -23,7 +22,8 @@ pub(crate) trait ServiceHandler {
 /// Type alias to represent a service handler trait object.
 pub(crate) type DynServiceHandler = Box<dyn ServiceHandler + Send + Sync>;
 
-/// Represents a summary of changes between two versions of the service's state.
+/// Represents a summary of changes detected in the service's state as defined
+/// in the configuration from the base to the head reference.
 pub(crate) struct ChangesSummary {
     pub changes: Vec<DynChange>,
     pub base_ref_config_status: BaseRefConfigStatus,
@@ -49,7 +49,7 @@ pub(crate) trait Change: Debug {
 /// Type alias to represent a change trait object.
 pub(crate) type DynChange = Box<dyn Change + Send + Sync>;
 
-/// Status of the configuration from the base reference.
+/// Status of the configuration in the base reference.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum BaseRefConfigStatus {
     Valid,

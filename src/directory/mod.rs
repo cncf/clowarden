@@ -37,46 +37,17 @@ pub(crate) struct Directory {
 }
 
 impl Directory {
-    /// Create a new directory instance.
-    pub(crate) async fn new_from_config(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        config_ref: Option<&str>,
-    ) -> Result<Self> {
+    /// Create a new directory instance from the configuration reference
+    /// provided (or from the base reference when none is provided).
+    pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
             let legacy_cfg =
-                legacy::Cfg::get(cfg, gh, config_ref).await.context("invalid directory configuration")?;
+                legacy::Cfg::get(cfg, gh, ref_).await.context("invalid directory configuration")?;
             return Ok(Self::from(legacy_cfg));
         }
         Err(format_err!(
             "only configuration in legacy format supported at the moment"
         ))
-    }
-
-    /// Return a summary of the changes detected in the directory from the base
-    /// to the head reference.
-    pub(crate) async fn get_changes_summary(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        head_ref: &str,
-    ) -> Result<ChangesSummary> {
-        let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
-        let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
-            Ok(directory_base) => {
-                let changes = directory_base
-                    .diff(&directory_head)
-                    .into_iter()
-                    .map(|change| Box::new(change) as DynChange)
-                    .collect();
-                (changes, BaseRefConfigStatus::Valid)
-            }
-            Err(_) => (vec![], BaseRefConfigStatus::Invalid),
-        };
-
-        Ok(ChangesSummary {
-            changes,
-            base_ref_config_status,
-        })
     }
 
     /// Returns the changes detected between this directory instance and the
@@ -171,6 +142,32 @@ impl Directory {
         changes
     }
 
+    /// Return a summary of the changes detected in the directory from the base
+    /// to the head reference.
+    pub(crate) async fn get_changes_summary(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        head_ref: &str,
+    ) -> Result<ChangesSummary> {
+        let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
+        let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
+            Ok(directory_base) => {
+                let changes = directory_base
+                    .diff(&directory_head)
+                    .into_iter()
+                    .map(|change| Box::new(change) as DynChange)
+                    .collect();
+                (changes, BaseRefConfigStatus::Valid)
+            }
+            Err(_) => (vec![], BaseRefConfigStatus::Invalid),
+        };
+
+        Ok(ChangesSummary {
+            changes,
+            base_ref_config_status,
+        })
+    }
+
     /// Get user identified by the user name provided.
     pub(crate) fn _get_user(&self, user_name: &str) -> Option<&User> {
         self.users.iter().find(|u| {
@@ -256,7 +253,7 @@ pub(crate) struct Team {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct User {
     pub full_name: String,
-    pub user_name: Option<String>,
+    pub user_name: Option<UserName>,
     pub email: Option<String>,
     pub image_url: Option<String>,
     pub bio: Option<String>,
