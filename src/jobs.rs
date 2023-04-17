@@ -1,10 +1,12 @@
 use crate::{
+    db::DynDB,
     directory::Directory,
     github::{self, DynGH},
     multierror::MultiError,
     services::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynServiceHandler, ServiceName},
     tmpl,
 };
+use ::time::OffsetDateTime;
 use anyhow::{Error, Result};
 use askama::Template;
 use config::Config;
@@ -29,18 +31,65 @@ pub(crate) enum Job {
     /// periodically or manually from a pull request. When it's triggered from
     /// a pull request, any feedback will be published to it in the form of
     /// comments.
-    Reconcile(Option<PullRequestData>),
+    Reconcile(ReconcileInput),
 
     /// A validate job verifies that the proposed changes to the configuration
     /// files in a pull request are valid, providing feedback to address issues
     /// whenever possible, as well as a summary of changes to facilitate
     /// reviews.
-    Validate(PullRequestData),
+    Validate(ValidateInput),
+}
+
+/// Information required to process a reconcile job.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ReconcileInput {
+    pub error: Option<String>,
+    pub pr_number: Option<i64>,
+    pub pr_created_by: Option<String>,
+    pub pr_merged_by: Option<String>,
+    pub pr_merged_at: Option<OffsetDateTime>,
+}
+
+impl From<PullRequestData> for ReconcileInput {
+    fn from(pr: PullRequestData) -> Self {
+        let mut input = ReconcileInput {
+            pr_number: Some(pr.number),
+            pr_created_by: pr.user.map(|u| u.login),
+            pr_merged_by: pr.merged_by.map(|u| u.login),
+            ..Default::default()
+        };
+        if let Some(pr_merged_at) = pr.merged_at {
+            match OffsetDateTime::from_unix_timestamp(pr_merged_at.timestamp()) {
+                Ok(pr_merged_at) => input.pr_merged_at = Some(pr_merged_at),
+                Err(_) => error!(pr.number, ?pr_merged_at, "invalid merged_at value"),
+            }
+        }
+        input
+    }
+}
+
+/// Information required to process a validate job.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ValidateInput {
+    pub pr_number: i64,
+    pub pr_head_ref: String,
+    pub pr_head_sha: String,
+}
+
+impl From<PullRequestData> for ValidateInput {
+    fn from(pr: PullRequestData) -> Self {
+        ValidateInput {
+            pr_number: pr.number,
+            pr_head_ref: pr.head.ref_,
+            pr_head_sha: pr.head.sha,
+        }
+    }
 }
 
 /// A jobs handler is in charge of executing the received jobs.
 pub(crate) struct Handler {
     cfg: Arc<Config>,
+    db: DynDB,
     gh: DynGH,
     services: HashMap<ServiceName, DynServiceHandler>,
 }
@@ -49,10 +98,16 @@ impl Handler {
     /// Create a new handler instance.
     pub(crate) fn new(
         cfg: Arc<Config>,
+        db: DynDB,
         gh: DynGH,
         services: HashMap<ServiceName, DynServiceHandler>,
     ) -> Self {
-        Self { cfg, gh, services }
+        Self {
+            cfg,
+            db,
+            gh,
+            services,
+        }
     }
 
     /// Spawn a new task to process jobs received on the jobs channel. The task
@@ -70,8 +125,8 @@ impl Handler {
                     // Pick next job from the queue and process it
                     Some(job) = jobs_rx.recv() => {
                         match job {
-                            Job::Reconcile(pr) => _ = self.handle_reconcile_job(pr).await,
-                            Job::Validate(pr) => _ = self.handle_validation_job(pr).await,
+                            Job::Reconcile(input) => _ = self.handle_reconcile_job(input).await,
+                            Job::Validate(input) => _ = self.handle_validate_job(input).await,
                         }
                     }
 
@@ -86,7 +141,7 @@ impl Handler {
 
     /// Reconcile job handler.
     #[instrument(skip_all, err(Debug))]
-    async fn handle_reconcile_job(&self, pr: Option<PullRequestData>) -> Result<()> {
+    async fn handle_reconcile_job(&self, input: ReconcileInput) -> Result<()> {
         let mut changes_applied: HashMap<ServiceName, ChangesApplied> = HashMap::new();
         let mut errors: HashMap<ServiceName, Error> = HashMap::new();
 
@@ -103,15 +158,20 @@ impl Handler {
             }
         }
 
+        // Register changes applied during reconciliation in database
+        if let Err(err) = self.db.register_reconciliation(&input, &changes_applied).await {
+            error!(?err, "error registering reconciliation in database");
+        }
+
         // Post reconciliation completed comment if the job was created from a PR
-        if let Some(pr) = pr {
+        if let Some(pr_number) = input.pr_number {
             let comment_body = tmpl::ReconciliationCompleted::new(&changes_applied, &errors).render()?;
-            if let Err(err) = self.gh.post_comment(pr.number, &comment_body).await {
+            if let Err(err) = self.gh.post_comment(pr_number, &comment_body).await {
                 error!(?err, "error posting reconciliation comment");
             }
         }
 
-        // Log errors and changes applied
+        // Log changes applied and errors
         for (service_name, error) in &errors {
             debug!(?error, service = service_name, "reconciliation failed");
         }
@@ -122,9 +182,11 @@ impl Handler {
                 } else {
                     "something went wrong applying change"
                 };
+                let details = entry.change.details();
                 debug!(
                     service = service_name,
-                    change = serde_json::to_string(&entry.change)?,
+                    kind = details.kind,
+                    extra = serde_json::to_string(&details.extra)?,
                     error = entry.error,
                     "{msg}"
                 );
@@ -134,14 +196,15 @@ impl Handler {
         Ok(())
     }
 
-    /// Validation job handler.
-    #[instrument(fields(pr_number = pr.number), skip_all, err(Debug))]
-    async fn handle_validation_job(&self, pr: PullRequestData) -> Result<()> {
+    /// Validate job handler.
+    #[instrument(fields(pr_number = input.pr_number), skip_all, err(Debug))]
+    async fn handle_validate_job(&self, input: ValidateInput) -> Result<()> {
         let mut merr = MultiError::new(None);
 
         // Directory configuration validation
         let directory_changes =
-            match Directory::get_changes_summary(self.cfg.clone(), self.gh.clone(), &pr.head.ref_).await {
+            match Directory::get_changes_summary(self.cfg.clone(), self.gh.clone(), &input.pr_head_ref).await
+            {
                 Ok(changes) => changes,
                 Err(err) => {
                     merr.push(err);
@@ -156,7 +219,7 @@ impl Handler {
         let mut services_changes: HashMap<ServiceName, ChangesSummary> = HashMap::new();
         if !merr.contains_errors() {
             for (service_name, service_handler) in &self.services {
-                match service_handler.get_changes_summary(&pr.head.ref_).await {
+                match service_handler.get_changes_summary(&input.pr_head_ref).await {
                     Ok(changes) => {
                         services_changes.insert(service_name, changes);
                     }
@@ -172,7 +235,7 @@ impl Handler {
             true => {
                 let comment_body = tmpl::ValidationFailed::new(&err).render()?;
                 let check_body = github::new_checks_create_request(
-                    pr.head.sha,
+                    input.pr_head_sha,
                     Some(JobStatus::Completed),
                     Some(ChecksCreateRequestConclusion::Failure),
                     "The configuration changes proposed are not valid",
@@ -183,7 +246,7 @@ impl Handler {
                 let comment_body =
                     tmpl::ValidationSucceeded::new(&directory_changes, &services_changes).render()?;
                 let check_body = github::new_checks_create_request(
-                    pr.head.sha,
+                    input.pr_head_sha,
                     Some(JobStatus::Completed),
                     Some(ChecksCreateRequestConclusion::Success),
                     "The configuration changes proposed are valid",
@@ -191,7 +254,7 @@ impl Handler {
                 (comment_body, check_body)
             }
         };
-        self.gh.post_comment(pr.number, &comment_body).await?;
+        self.gh.post_comment(input.pr_number, &comment_body).await?;
         self.gh.create_check_run(&check_body).await?;
 
         if errors_found {
@@ -236,7 +299,7 @@ impl Scheduler {
 
                     // Schedule reconcile job
                     _ = reconcile.tick() => {
-                        _ = jobs_tx.send(Job::Reconcile(None));
+                        _ = jobs_tx.send(Job::Reconcile(ReconcileInput::default()));
                     },
                 }
             }

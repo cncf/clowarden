@@ -1,12 +1,13 @@
 use crate::{
     github::DynGH,
-    services::{BaseRefConfigStatus, Change, ChangesSummary, DynChange},
+    services::{BaseRefConfigStatus, Change, ChangeDetails, ChangesSummary, DynChange},
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
@@ -272,8 +273,7 @@ pub(crate) struct User {
 }
 
 /// Represents a change in the directory.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum DirectoryChange {
     TeamAdded(Team),
@@ -287,8 +287,49 @@ pub(crate) enum DirectoryChange {
     UserUpdated(UserFullName),
 }
 
-#[typetag::serde]
 impl Change for DirectoryChange {
+    /// [Change::details]
+    fn details(&self) -> ChangeDetails {
+        match self {
+            DirectoryChange::TeamAdded(team) => ChangeDetails {
+                kind: "team-added".to_string(),
+                extra: json!({ "team": team }),
+            },
+            DirectoryChange::TeamRemoved(team_name) => ChangeDetails {
+                kind: "team-removed".to_string(),
+                extra: json!({ "team_name": team_name }),
+            },
+            DirectoryChange::TeamMaintainerAdded(team_name, user_name) => ChangeDetails {
+                kind: "team-maintainer-added".to_string(),
+                extra: json!({ "team_name": team_name, "user_name": user_name }),
+            },
+            DirectoryChange::TeamMaintainerRemoved(team_name, user_name) => ChangeDetails {
+                kind: "team-maintainer-removed".to_string(),
+                extra: json!({ "team_name": team_name, "user_name": user_name }),
+            },
+            DirectoryChange::TeamMemberAdded(team_name, user_name) => ChangeDetails {
+                kind: "team-member-added".to_string(),
+                extra: json!({ "team_name": team_name, "user_name": user_name }),
+            },
+            DirectoryChange::TeamMemberRemoved(team_name, user_name) => ChangeDetails {
+                kind: "team-member-removed".to_string(),
+                extra: json!({ "team_name": team_name, "user_name": user_name }),
+            },
+            DirectoryChange::UserAdded(full_name) => ChangeDetails {
+                kind: "user-added".to_string(),
+                extra: json!({ "full_name": full_name }),
+            },
+            DirectoryChange::UserRemoved(full_name) => ChangeDetails {
+                kind: "user-removed".to_string(),
+                extra: json!({ "full_name": full_name }),
+            },
+            DirectoryChange::UserUpdated(full_name) => ChangeDetails {
+                kind: "user-updated".to_string(),
+                extra: json!({ "full_name": full_name }),
+            },
+        }
+    }
+
     /// [Change::template_format]
     fn template_format(&self) -> Result<String> {
         let mut s = String::new();

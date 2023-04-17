@@ -15,7 +15,7 @@ pub(crate) mod service;
 mod state;
 
 /// GitHub's service name.
-pub(crate) const SERVICE_NAME: &str = "GitHub";
+pub(crate) const SERVICE_NAME: &str = "github";
 
 /// GitHub's service handler.
 pub(crate) struct Handler {
@@ -95,6 +95,7 @@ impl ServiceHandler for Handler {
             changes_applied.push(ChangeApplied {
                 change: Box::new(change),
                 error: err.map(|e| e.to_string()),
+                applied_at: time::OffsetDateTime::now_utc(),
             })
         }
 
@@ -130,6 +131,7 @@ impl ServiceHandler for Handler {
             changes_applied.push(ChangeApplied {
                 change: Box::new(change),
                 error: err.map(|e| e.to_string()),
+                applied_at: time::OffsetDateTime::now_utc(),
             })
         }
 

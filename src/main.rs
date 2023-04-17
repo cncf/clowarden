@@ -1,11 +1,15 @@
 use crate::{
+    db::PgDB,
     github::GHApi,
     services::{DynServiceHandler, ServiceName},
 };
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{Config, File};
+use deadpool_postgres::{Config as DbConfig, Runtime};
 use futures::future;
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres_openssl::MakeTlsConnector;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{
     signal,
@@ -14,6 +18,7 @@ use tokio::{
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
+mod db;
 mod directory;
 mod github;
 mod handlers;
@@ -54,6 +59,14 @@ async fn main() -> Result<()> {
         _ => s.init(),
     };
 
+    // Setup database
+    let mut builder = SslConnector::builder(SslMethod::tls())?;
+    builder.set_verify(SslVerifyMode::NONE);
+    let connector = MakeTlsConnector::new(builder.build());
+    let db_cfg: DbConfig = cfg.get("db")?;
+    let pool = db_cfg.create_pool(Some(Runtime::Tokio1), connector)?;
+    let db = Arc::new(PgDB::new(pool));
+
     // Setup GitHub client
     let gh = Arc::new(GHApi::new(cfg.clone()).context("error setting up github client")?);
 
@@ -70,7 +83,7 @@ async fn main() -> Result<()> {
     // Setup and launch jobs workers
     let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(cfg.clone(), gh.clone(), services);
+    let jobs_handler = jobs::Handler::new(cfg.clone(), db.clone(), gh.clone(), services);
     let jobs_scheduler = jobs::Scheduler::new();
     let jobs_workers_done = future::join_all([
         jobs_handler.start(jobs_rx, stop_tx.subscribe()),

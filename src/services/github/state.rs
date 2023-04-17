@@ -3,7 +3,7 @@ use crate::{
     directory::{Directory, DirectoryChange, Team, TeamName, UserName},
     github::DynGH,
     multierror::MultiError,
-    services::Change,
+    services::{Change, ChangeDetails},
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
@@ -11,6 +11,7 @@ use octorust::types::{
     RepositoryPermissions, TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
@@ -405,15 +406,14 @@ impl From<&str> for Visibility {
 }
 
 /// Represents the changes between two states.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Changes {
     pub directory: Vec<DirectoryChange>,
     pub repositories: Vec<RepositoryChange>,
 }
 
 /// Represents a repository change.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RepositoryChange {
     RepositoryAdded(Repository),
     RepositoryRemoved(RepositoryName),
@@ -426,8 +426,49 @@ pub(crate) enum RepositoryChange {
     VisibilityUpdated(RepositoryName, Visibility),
 }
 
-#[typetag::serde]
 impl Change for RepositoryChange {
+    /// [Change::details]
+    fn details(&self) -> ChangeDetails {
+        match self {
+            RepositoryChange::RepositoryAdded(repo) => ChangeDetails {
+                kind: "repository-added".to_string(),
+                extra: json!({ "repo": repo }),
+            },
+            RepositoryChange::RepositoryRemoved(repo_name) => ChangeDetails {
+                kind: "repository-removed".to_string(),
+                extra: json!({ "repo_name": repo_name }),
+            },
+            RepositoryChange::TeamAdded(repo_name, team_name, role) => ChangeDetails {
+                kind: "repository-team-added".to_string(),
+                extra: json!({ "repo_name": repo_name, "team_name": team_name, "role": role }),
+            },
+            RepositoryChange::TeamRemoved(repo_name, team_name) => ChangeDetails {
+                kind: "repository-team-removed".to_string(),
+                extra: json!({ "repo_name": repo_name, "team_name": team_name }),
+            },
+            RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => ChangeDetails {
+                kind: "repository-team-role-updated".to_string(),
+                extra: json!({ "repo_name": repo_name, "team_name": team_name, "role": role }),
+            },
+            RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => ChangeDetails {
+                kind: "repository-collaborator-added".to_string(),
+                extra: json!({ "repo_name": repo_name, "user_name": user_name, "role": role }),
+            },
+            RepositoryChange::CollaboratorRemoved(repo_name, user_name) => ChangeDetails {
+                kind: "repository-collaborator-removed".to_string(),
+                extra: json!({ "repo_name": repo_name, "user_name": user_name }),
+            },
+            RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => ChangeDetails {
+                kind: "repository-collaborator-role-updated".to_string(),
+                extra: json!({ "repo_name": repo_name, "user_name": user_name, "role": role }),
+            },
+            RepositoryChange::VisibilityUpdated(repo_name, visibility) => ChangeDetails {
+                kind: "repository-visibility-updated".to_string(),
+                extra: json!({ "repo_name": repo_name, "visibility": visibility }),
+            },
+        }
+    }
+
     /// [Change::template_format]
     fn template_format(&self) -> Result<String> {
         let mut s = String::new();

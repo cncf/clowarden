@@ -133,11 +133,13 @@ async fn event(
                     }
 
                     // Enqueue validation job
-                    _ = jobs_tx.send(Job::Validate(event.pull_request));
+                    let input = event.pull_request.into();
+                    _ = jobs_tx.send(Job::Validate(input));
                 }
                 PullRequestEventAction::Closed if event.pull_request.merged => {
                     // Enqueue reconcile job
-                    _ = jobs_tx.send(Job::Reconcile(Some(event.pull_request)));
+                    let input = event.pull_request.into();
+                    _ = jobs_tx.send(Job::Reconcile(input));
                 }
                 _ => {}
             }

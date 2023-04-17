@@ -34,14 +34,18 @@ pub(crate) type ChangesApplied = Vec<ChangeApplied>;
 
 /// Represents a change applied on a service in an attempt to get closer to the
 /// desired state.
+#[derive(Debug)]
 pub(crate) struct ChangeApplied {
     pub change: DynChange,
     pub error: Option<String>,
+    pub applied_at: time::OffsetDateTime,
 }
 
 /// Trait that defines some operations a Change implementation must support.
-#[typetag::serde(tag = "type")]
 pub(crate) trait Change: Debug {
+    /// Return some details about the change.
+    fn details(&self) -> ChangeDetails;
+
     /// Format change to be used on a template.
     fn template_format(&self) -> Result<String>;
 }
@@ -62,4 +66,11 @@ impl BaseRefConfigStatus {
     pub(crate) fn is_invalid(&self) -> bool {
         *self == BaseRefConfigStatus::Invalid
     }
+}
+
+/// ChangeDetails represents some details about a change.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ChangeDetails {
+    pub kind: String,
+    pub extra: serde_json::Value,
 }
