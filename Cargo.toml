@@ -19,6 +19,7 @@ futures = "0.3.28"
 hmac = "0.12.1"
 hex = "0.4.3"
 lazy_static = "1.4.0"
+mime = "0.3.17"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
 openssl = { version = "0.10.50", features = ["vendored"] }
 pem = "2.0.1"
@@ -26,6 +27,7 @@ postgres-openssl = "0.5.0"
 regex = "1.7.3"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
+serde_qs = "0.12.0"
 serde_yaml = "0.9.21"
 sha2 = "0.10.6"
 thiserror = "1.0.40"

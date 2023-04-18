@@ -1,52 +1,71 @@
 use crate::{
+    db::{DynDB, SearchChangesInput},
     github::{self, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
     jobs::Job,
 };
 use anyhow::{format_err, Error, Result};
 use axum::{
-    body::Bytes,
-    extract::{FromRef, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    body::{Bytes, Full},
+    extract::{FromRef, RawQuery, State},
+    http::{
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+        HeaderMap, HeaderValue, Response, StatusCode,
+    },
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
     Router,
 };
 use config::Config;
 use hmac::{Hmac, Mac};
+use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
 use sha2::Sha256;
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 use tokio::sync::mpsc;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::{error, instrument, trace};
 
+/// Default cache duration for some API endpoints.
+const DEFAULT_API_MAX_AGE: usize = 300;
+
 /// Header representing the kind of the event received.
-pub(crate) const GITHUB_EVENT_HEADER: &str = "X-GitHub-Event";
+const GITHUB_EVENT_HEADER: &str = "X-GitHub-Event";
 
 /// Header representing the event payload signature.
-pub(crate) const GITHUB_SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
+const GITHUB_SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
+
+/// Header that indicates the number of items available for pagination purposes.
+const PAGINATION_TOTAL_COUNT: &str = "pagination-total-count";
 
 /// Router's state.
 #[derive(Clone, FromRef)]
 struct RouterState {
     cfg: Arc<Config>,
+    db: DynDB,
     gh: DynGH,
     webhook_secret: String,
     jobs_tx: mpsc::UnboundedSender<Job>,
 }
 
 /// Setup HTTP server router.
-pub(crate) fn setup_router(cfg: Arc<Config>, gh: DynGH, jobs_tx: mpsc::UnboundedSender<Job>) -> Router {
+pub(crate) fn setup_router(
+    cfg: Arc<Config>,
+    db: DynDB,
+    gh: DynGH,
+    jobs_tx: mpsc::UnboundedSender<Job>,
+) -> Router {
     // Setup webhook secret
     let webhook_secret = cfg.get_string("githubApp.webhookSecret").unwrap();
 
     // Setup router
     Router::new()
+        .route("/api/changes/search", get(search_changes))
         .route("/api/events", post(event))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {
             cfg,
+            db,
             gh,
             webhook_secret,
             jobs_tx,
@@ -149,6 +168,22 @@ async fn event(
     Ok(())
 }
 
+/// Handler that allows searching for changes.
+async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> impl IntoResponse {
+    // Search changes in database
+    let query = query.unwrap_or_default();
+    let input: SearchChangesInput = serde_qs::from_str(&query).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (count, changes) = db.search_changes(&input).await.map_err(internal_error)?;
+
+    // Return search results as json
+    Response::builder()
+        .header(CACHE_CONTROL, format!("max-age={DEFAULT_API_MAX_AGE}"))
+        .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
+        .header(PAGINATION_TOTAL_COUNT, count.to_string())
+        .body(Full::from(changes))
+        .map_err(internal_error)
+}
+
 /// Verify that the signature provided is valid.
 fn verify_signature(signature: Option<&HeaderValue>, secret: &[u8], body: &[u8]) -> Result<()> {
     if let Some(signature) = signature
@@ -193,4 +228,13 @@ async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent
     }
 
     Ok(false)
+}
+
+/// Helper for mapping any error into a `500 Internal Server Error` response.
+fn internal_error<E>(err: E) -> StatusCode
+where
+    E: Into<Error> + Display,
+{
+    error!(%err);
+    StatusCode::INTERNAL_SERVER_ERROR
 }

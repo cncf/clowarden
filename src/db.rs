@@ -1,15 +1,16 @@
+use crate::{
+    jobs::ReconcileInput,
+    services::{ChangesApplied, ServiceName},
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 #[cfg(test)]
 use mockall::automock;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
+use tokio_postgres::types::Json;
 use uuid::Uuid;
-
-use crate::{
-    jobs::ReconcileInput,
-    services::{ChangesApplied, ServiceName},
-};
 
 /// Trait that defines some operations a DB implementation must support.
 #[async_trait]
@@ -21,13 +22,19 @@ pub(crate) trait DB {
         input: &ReconcileInput,
         changes_applied: &HashMap<ServiceName, ChangesApplied>,
     ) -> Result<()>;
+
+    /// Search changes that match the criteria provided.
+    async fn search_changes(&self, input: &SearchChangesInput) -> Result<(Count, JsonString)>;
 }
 
 /// Type alias to represent a DB trait object.
 pub(crate) type DynDB = Arc<dyn DB + Send + Sync>;
 
-/// Type alias to represent a reconciliation id.
-pub(crate) type ReconciliationId = Uuid;
+/// Type alias to represent a counter value.
+type Count = i64;
+
+/// Type alias to represent a json string.
+type JsonString = String;
 
 /// DB implementation backed by PostgreSQL.
 pub(crate) struct PgDB {
@@ -53,7 +60,7 @@ impl DB for PgDB {
         let tx = db.transaction().await?;
 
         // Register reconciliation entry
-        let reconciliation_id: ReconciliationId = tx
+        let reconciliation_id: Uuid = tx
             .query_one(
                 "
                 insert into reconciliation (
@@ -88,22 +95,22 @@ impl DB for PgDB {
                 let change_details = change_applied.change.details();
                 tx.execute(
                     "
-                insert into change (
-                    service,
-                    kind,
-                    extra,
-                    applied_at,
-                    error,
-                    reconciliation_id
-                ) values (
-                    $1::text,
-                    $2::text,
-                    $3::jsonb,
-                    $4::timestamptz,
-                    $5::text,
-                    $6::uuid
-                )
-                ",
+                    insert into change (
+                        service,
+                        kind,
+                        extra,
+                        applied_at,
+                        error,
+                        reconciliation_id
+                    ) values (
+                        $1::text,
+                        $2::text,
+                        $3::jsonb,
+                        $4::timestamptz,
+                        $5::text,
+                        $6::uuid
+                    )
+                    ",
                     &[
                         service_name,
                         &change_details.kind,
@@ -120,4 +127,27 @@ impl DB for PgDB {
         tx.commit().await?;
         Ok(())
     }
+
+    /// [DB::search_changes]
+    async fn search_changes(&self, input: &SearchChangesInput) -> Result<(Count, JsonString)> {
+        let db = self.pool.get().await?;
+        let row = db
+            .query_one(
+                "select total_count, changes::text from search_changes($1::jsonb)",
+                &[&Json(input)],
+            )
+            .await?;
+        let count: i64 = row.get("total_count");
+        let changes: String = row.get("changes");
+        Ok((count, changes))
+    }
+}
+
+/// Query input used when searching for changes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SearchChangesInput {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
 }

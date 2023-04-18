@@ -1,3 +1,3 @@
 # CLOWarden
 
-**CLOWarden** automatically manages organizations teams and permissions across multiple services.
+**CLOWarden** automatically manages organizations users, teams and other resources across multiple services.

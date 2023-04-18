@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
     ]);
 
     // Setup and launch HTTP server
-    let router = handlers::setup_router(cfg.clone(), gh.clone(), jobs_tx);
+    let router = handlers::setup_router(cfg.clone(), db.clone(), gh.clone(), jobs_tx);
     let addr: SocketAddr = cfg.get_string("server.addr").unwrap().parse()?;
     info!("server started");
     info!(%addr, "listening");
