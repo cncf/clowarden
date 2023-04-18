@@ -1260,7 +1260,7 @@ dependencies = [
 [[package]]
 name = "octorust"
 version = "0.3.2"
-source = "git+https://github.com/tegioz/third-party-api-clients.git#1bc32ad752595655fb92cdc77e6f62fcc760b11a"
+source = "git+https://github.com/tegioz/third-party-api-clients.git#077aaeb30708c4a0e76a01a0db2d8c5c81a665d2"
 dependencies = [
  "async-recursion",
  "chrono",

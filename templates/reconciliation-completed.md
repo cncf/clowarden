@@ -1,6 +1,6 @@
 ## Reconciliation completed
 {% if !errors_found %}
-  #### ✅ The reconciliation completed successfully and all changes have been applied!
+  #### ✅ The reconciliation completed successfully and all changes have been applied across the services!
 {% else ~%}
   #### ‼️ Some errors were found during the reconciliation
   {% for service_name in services ~%}
