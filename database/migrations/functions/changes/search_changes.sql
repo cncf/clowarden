@@ -7,7 +7,31 @@ declare
     v_offset int := coalesce((p_input->>'offset')::int, 0);
     v_sort_by text := coalesce(p_input->>'sort_by', 'date');
     v_sort_direction text := coalesce(p_input->>'sort_direction', 'desc');
+    v_service text[];
+    v_kind text[];
+    v_applied_from timestamptz := (p_input->>'applied_from');
+    v_applied_to timestamptz := (p_input->>'applied_to');
+    v_pr_number bigint[];
+    v_pr_merged_by text[];
 begin
+    -- Prepare filters
+    if p_input ? 'service' and p_input->'service' <> 'null' then
+        select array_agg(e::text) into v_service
+        from jsonb_array_elements_text(p_input->'service') e;
+    end if;
+    if p_input ? 'kind' and p_input->'kind' <> 'null' then
+        select array_agg(e::text) into v_kind
+        from jsonb_array_elements_text(p_input->'kind') e;
+    end if;
+    if p_input ? 'pr_number' and p_input->'pr_number' <> 'null' then
+        select array_agg(e::text) into v_pr_number
+        from jsonb_array_elements_text(p_input->'pr_number') e;
+    end if;
+    if p_input ? 'pr_merged_by' and p_input->'pr_merged_by' <> 'null' then
+        select array_agg(e::text) into v_pr_merged_by
+        from jsonb_array_elements_text(p_input->'pr_merged_by') e;
+    end if;
+
     return query
     with filtered_changes as (
         select
@@ -26,6 +50,28 @@ begin
             extract(epoch from r.pr_merged_at) as pr_merged_at
         from change c
         join reconciliation r using (reconciliation_id)
+        where
+            case when cardinality(v_service) > 0 then
+            c.service = any(v_service) else true end
+        and
+            case when cardinality(v_kind) > 0 then
+            c.kind = any(v_kind) else true end
+        and
+            case when v_applied_from is not null then
+            c.applied_at >= v_applied_from else true end
+        and
+            case when v_applied_to is not null then
+            c.applied_at <= v_applied_to else true end
+        and
+            case when cardinality(v_pr_number) > 0 then
+            r.pr_number = any(v_pr_number) else true end
+        and
+            case when cardinality(v_pr_merged_by) > 0 then
+            r.pr_merged_by = any(v_pr_merged_by) else true end
+        and
+            case when p_input ? 'applied_successfully' and (p_input->>'applied_successfully')::boolean = true then
+                c.error is null
+            else true end
     )
     select
         (

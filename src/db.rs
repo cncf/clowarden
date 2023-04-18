@@ -150,4 +150,11 @@ pub(crate) struct SearchChangesInput {
     pub offset: Option<usize>,
     pub sort_by: Option<String>,
     pub sort_direction: Option<String>,
+    pub service: Option<Vec<String>>,
+    pub kind: Option<Vec<String>>,
+    pub applied_from: Option<String>,
+    pub applied_to: Option<String>,
+    pub pr_number: Option<Vec<i64>>,
+    pub pr_merged_by: Option<Vec<String>>,
+    pub applied_successfully: Option<bool>,
 }
