@@ -307,9 +307,14 @@ impl State {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Repository {
     pub name: String,
-    #[serde(alias = "external_collaborators")]
+
+    #[serde(alias = "external_collaborators", skip_serializing_if = "Option::is_none")]
     pub collaborators: Option<HashMap<UserName, Role>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub teams: Option<HashMap<TeamName, Role>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub visibility: Option<Visibility>,
 }
 

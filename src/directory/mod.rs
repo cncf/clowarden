@@ -244,9 +244,17 @@ impl From<legacy::Cfg> for Directory {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Team {
     pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub maintainers: Vec<UserName>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub members: Vec<UserName>,
+
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub annotations: HashMap<String, String>,
 }
 
