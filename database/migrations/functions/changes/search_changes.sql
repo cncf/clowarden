@@ -18,7 +18,7 @@ begin
             extract(epoch from c.applied_at) as change_applied_at,
             c.error as change_error,
             r.reconciliation_id,
-            r.completed_at as reconciliation_completed_at,
+            extract(epoch from r.completed_at) as reconciliation_completed_at,
             r.error as reconciliation_error,
             r.pr_number,
             r.pr_created_by,
