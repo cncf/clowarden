@@ -8,7 +8,8 @@ use crate::{
 use anyhow::{format_err, Context, Result};
 use config::Config;
 use octorust::types::{
-    RepositoryPermissions, TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
+    OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
+    TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,6 +21,9 @@ use std::{
 
 /// Type alias to represent a repository name.
 pub(crate) type RepositoryName = String;
+
+/// Type alias to represent a repository invitation_id.
+pub(crate) type RepositoryInvitationId = i64;
 
 /// GitHub's service state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -62,14 +66,25 @@ impl State {
     pub(crate) async fn new_from_service(svc: DynSvc) -> Result<State> {
         let mut state = State::default();
 
-        // TODO: increase concurrency for requests done below
+        // TODO: increase concurrency for requests done to service below
 
         // Teams
         for team in svc.list_teams().await? {
-            let maintainers =
+            // Maintainers and members (including pending invitations)
+            let mut maintainers: Vec<UserName> =
                 svc.list_team_maintainers(&team.slug).await?.into_iter().map(|u| u.login).collect();
-
-            let members = svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
+            let mut members: Vec<UserName> =
+                svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
+            for invitation in svc.list_team_invitations(&team.slug).await?.into_iter() {
+                let membership = svc.get_team_membership(&team.slug, &invitation.login).await?;
+                if membership.state == OrgMembershipState::Pending {
+                    match membership.role {
+                        TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
+                        TeamMembershipRole::Member => members.push(invitation.login),
+                        _ => {}
+                    }
+                }
+            }
 
             state.directory.teams.push(Team {
                 name: team.slug,
@@ -82,18 +97,25 @@ impl State {
 
         // Repositories
         for repo in svc.list_repositories().await? {
-            let collaborators: HashMap<UserName, Role> = svc
+            // Collaborators (including pending invitations)
+            let mut collaborators: HashMap<UserName, Role> = svc
                 .list_repository_collaborators(&repo.name)
                 .await?
                 .into_iter()
                 .map(|c| (c.login, c.permissions.into()))
                 .collect();
+            for invitation in svc.list_repository_invitations(&repo.name).await?.into_iter() {
+                if let Some(invitee) = invitation.invitee {
+                    collaborators.insert(invitee.login, invitation.permissions.into());
+                }
+            }
             let collaborators = if collaborators.is_empty() {
                 None
             } else {
                 Some(collaborators)
             };
 
+            // Teams
             let teams: HashMap<TeamName, Role> = svc
                 .list_repository_teams(&repo.name)
                 .await?
@@ -352,6 +374,31 @@ impl From<Option<RepositoryPermissions>> for Role {
             Some(p) if p.pull => Role::Read,
             Some(_) => Role::default(),
             None => Role::default(),
+        }
+    }
+}
+
+impl From<RepositoryInvitationPermissions> for Role {
+    fn from(permissions: RepositoryInvitationPermissions) -> Self {
+        match permissions {
+            RepositoryInvitationPermissions::Admin => Role::Admin,
+            RepositoryInvitationPermissions::Maintain => Role::Maintain,
+            RepositoryInvitationPermissions::Write => Role::Write,
+            RepositoryInvitationPermissions::Triage => Role::Triage,
+            RepositoryInvitationPermissions::Read => Role::Read,
+            _ => Role::default(),
+        }
+    }
+}
+
+impl From<&Role> for RepositoryInvitationPermissions {
+    fn from(role: &Role) -> Self {
+        match role {
+            Role::Admin => RepositoryInvitationPermissions::Admin,
+            Role::Maintain => RepositoryInvitationPermissions::Maintain,
+            Role::Write => RepositoryInvitationPermissions::Write,
+            Role::Triage => RepositoryInvitationPermissions::Triage,
+            Role::Read => RepositoryInvitationPermissions::Read,
         }
     }
 }

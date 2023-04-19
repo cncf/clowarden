@@ -80,14 +80,14 @@ impl Directory {
             // Maintainers
             let maintainers_old: HashSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
             let maintainers_new: HashSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
-            for user_name in maintainers_new.difference(&maintainers_old) {
-                changes.push(DirectoryChange::TeamMaintainerAdded(
+            for user_name in maintainers_old.difference(&maintainers_new) {
+                changes.push(DirectoryChange::TeamMaintainerRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
-            for user_name in maintainers_old.difference(&maintainers_new) {
-                changes.push(DirectoryChange::TeamMaintainerRemoved(
+            for user_name in maintainers_new.difference(&maintainers_old) {
+                changes.push(DirectoryChange::TeamMaintainerAdded(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
@@ -96,14 +96,14 @@ impl Directory {
             // Members
             let members_old: HashSet<&UserName> = teams_old[team_name].members.iter().collect();
             let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
-            for user_name in members_new.difference(&members_old) {
-                changes.push(DirectoryChange::TeamMemberAdded(
+            for user_name in members_old.difference(&members_new) {
+                changes.push(DirectoryChange::TeamMemberRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
-            for user_name in members_old.difference(&members_new) {
-                changes.push(DirectoryChange::TeamMemberRemoved(
+            for user_name in members_new.difference(&members_old) {
+                changes.push(DirectoryChange::TeamMemberAdded(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))

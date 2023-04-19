@@ -1,9 +1,13 @@
 use self::{
     service::DynSvc,
-    state::{RepositoryChange, State},
+    state::{RepositoryChange, RepositoryInvitationId, RepositoryName, State},
 };
 use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
-use crate::{directory::DirectoryChange, github::DynGH, services::ChangeApplied};
+use crate::{
+    directory::{DirectoryChange, UserName},
+    github::DynGH,
+    services::ChangeApplied,
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use config::Config;
@@ -28,6 +32,22 @@ impl Handler {
     /// Create a new Handler instance.
     pub(crate) fn new(cfg: Arc<Config>, gh: DynGH, svc: DynSvc) -> Self {
         Self { cfg, gh, svc }
+    }
+
+    /// Helper function to get the invitation id for a given user in a
+    /// repository (when available).
+    async fn get_repository_invitation(
+        &self,
+        repo_name: &RepositoryName,
+        user_name: &UserName,
+    ) -> Result<Option<RepositoryInvitationId>> {
+        let invitation_id = self.svc.list_repository_invitations(repo_name).await?.iter().find_map(|i| {
+            if i.invitee.is_some() && &i.invitee.as_ref().unwrap().login == user_name {
+                return Some(i.id);
+            }
+            None
+        });
+        Ok(invitation_id)
     }
 }
 
@@ -119,10 +139,18 @@ impl ServiceHandler for Handler {
                     self.svc.add_repository_collaborator(repo_name, user_name, role).await.err()
                 }
                 RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
-                    self.svc.remove_repository_collaborator(repo_name, user_name).await.err()
+                    if let Some(invitation_id) = self.get_repository_invitation(repo_name, user_name).await? {
+                        self.svc.remove_repository_invitation(repo_name, invitation_id).await.err()
+                    } else {
+                        self.svc.remove_repository_collaborator(repo_name, user_name).await.err()
+                    }
                 }
                 RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
-                    self.svc.update_repository_collaborator_role(repo_name, user_name, role).await.err()
+                    if let Some(invitation_id) = self.get_repository_invitation(repo_name, user_name).await? {
+                        self.svc.update_repository_invitation(repo_name, invitation_id, role).await.err()
+                    } else {
+                        self.svc.update_repository_collaborator_role(repo_name, user_name, role).await.err()
+                    }
                 }
                 RepositoryChange::VisibilityUpdated(repo_name, visibility) => {
                     self.svc.update_repository_visibility(repo_name, visibility).await.err()

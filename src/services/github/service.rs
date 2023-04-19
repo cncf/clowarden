@@ -8,10 +8,12 @@ use mockall::automock;
 use octorust::{
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     types::{
-        Affiliation, Collaborator, MinimalRepository, Order, Privacy, ReposAddCollaboratorRequest,
-        ReposCreateInOrgRequest, ReposCreateInOrgRequestVisibility, ReposListOrgSort, ReposListOrgType,
-        ReposUpdateRequest, SimpleUser, Team, TeamMembershipRole, TeamsAddUpdateMembershipUserInOrgRequest,
-        TeamsAddUpdateRepoPermissionsInOrgRequest, TeamsCreateRequest, TeamsListMembersInOrgRole,
+        Affiliation, Collaborator, MinimalRepository, Order, OrganizationInvitation, Privacy,
+        ReposAddCollaboratorRequest, ReposCreateInOrgRequest, ReposCreateInOrgRequestVisibility,
+        ReposListOrgSort, ReposListOrgType, ReposUpdateInvitationRequest, ReposUpdateRequest,
+        RepositoryInvitation, SimpleUser, Team, TeamMembership, TeamMembershipRole,
+        TeamsAddUpdateMembershipUserInOrgRequest, TeamsAddUpdateRepoPermissionsInOrgRequest,
+        TeamsCreateRequest, TeamsListMembersInOrgRole,
     },
     Client, ClientError,
 };
@@ -53,6 +55,13 @@ pub(crate) trait Svc {
     /// Add member to the team.
     async fn add_team_member(&self, team_name: &TeamName, user_name: &UserName) -> Result<(), ClientError>;
 
+    /// Get user's membership in team provided.
+    async fn get_team_membership(
+        &self,
+        team_name: &TeamName,
+        user_name: &UserName,
+    ) -> Result<TeamMembership, ClientError>;
+
     /// List repositories in the organization.
     async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError>;
 
@@ -62,8 +71,20 @@ pub(crate) trait Svc {
         repo_name: &RepositoryName,
     ) -> Result<Vec<Collaborator>, ClientError>;
 
+    /// List repository's invitations.
+    async fn list_repository_invitations(
+        &self,
+        repo_name: &RepositoryName,
+    ) -> Result<Vec<RepositoryInvitation>, ClientError>;
+
     /// List repository's teams.
     async fn list_repository_teams(&self, repo_name: &RepositoryName) -> Result<Vec<Team>, ClientError>;
+
+    /// List team's invitations.
+    async fn list_team_invitations(
+        &self,
+        team_name: &TeamName,
+    ) -> Result<Vec<OrganizationInvitation>, ClientError>;
 
     /// List team's maintainers.
     async fn list_team_maintainers(&self, team_name: &TeamName) -> Result<Vec<SimpleUser>, ClientError>;
@@ -82,6 +103,13 @@ pub(crate) trait Svc {
         &self,
         repo_name: &RepositoryName,
         user_name: &UserName,
+    ) -> Result<(), ClientError>;
+
+    /// Remove repository invitation.
+    async fn remove_repository_invitation(
+        &self,
+        repo_name: &RepositoryName,
+        invitation_id: i64,
     ) -> Result<(), ClientError>;
 
     /// Remove team from repository.
@@ -110,6 +138,14 @@ pub(crate) trait Svc {
         &self,
         repo_name: &RepositoryName,
         user_name: &UserName,
+        role: &Role,
+    ) -> Result<(), ClientError>;
+
+    /// Update repository invitation.
+    async fn update_repository_invitation(
+        &self,
+        repo_name: &RepositoryName,
+        invitation_id: i64,
         role: &Role,
     ) -> Result<(), ClientError>;
 
@@ -293,6 +329,15 @@ impl Svc for SvcApi {
         Ok(())
     }
 
+    /// [Svc::get_team_membership]
+    async fn get_team_membership(
+        &self,
+        team_name: &TeamName,
+        user_name: &UserName,
+    ) -> Result<TeamMembership, ClientError> {
+        self.client.teams().get_membership_for_user_in_org(&self.org, team_name, user_name).await
+    }
+
     /// [Svc::list_repositories]
     async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError> {
         self.client
@@ -314,9 +359,25 @@ impl Svc for SvcApi {
         self.client.repos().list_all_collaborators(&self.org, repo_name, Affiliation::All).await
     }
 
+    /// [Svc::list_repository_invitations]
+    async fn list_repository_invitations(
+        &self,
+        repo_name: &RepositoryName,
+    ) -> Result<Vec<RepositoryInvitation>, ClientError> {
+        self.client.repos().list_all_invitations(&self.org, repo_name).await
+    }
+
     /// [Svc::list_repository_teams]
     async fn list_repository_teams(&self, repo_name: &RepositoryName) -> Result<Vec<Team>, ClientError> {
         self.client.repos().list_all_teams(&self.org, repo_name).await
+    }
+
+    /// [Svc::list_team_invitations]
+    async fn list_team_invitations(
+        &self,
+        team_name: &TeamName,
+    ) -> Result<Vec<OrganizationInvitation>, ClientError> {
+        self.client.teams().list_all_pending_invitations_in_org(&self.org, team_name).await
     }
 
     /// [Svc::list_team_maintainers]
@@ -352,6 +413,15 @@ impl Svc for SvcApi {
         user_name: &UserName,
     ) -> Result<(), ClientError> {
         self.client.repos().remove_collaborator(&self.org, repo_name, user_name).await
+    }
+
+    /// [Svc::remove_repository_invitation]
+    async fn remove_repository_invitation(
+        &self,
+        repo_name: &RepositoryName,
+        invitation_id: i64,
+    ) -> Result<(), ClientError> {
+        self.client.repos().delete_invitation(&self.org, repo_name, invitation_id).await
     }
 
     /// [Svc::remove_repository_team]
@@ -404,6 +474,20 @@ impl Svc for SvcApi {
             permissions: "".to_string(),
         };
         self.client.repos().add_collaborator(&self.org, repo_name, user_name, &body).await?;
+        Ok(())
+    }
+
+    /// [Svc::update_repository_invitation]
+    async fn update_repository_invitation(
+        &self,
+        repo_name: &RepositoryName,
+        invitation_id: i64,
+        role: &Role,
+    ) -> Result<(), ClientError> {
+        let body = ReposUpdateInvitationRequest {
+            permissions: Some(role.into()),
+        };
+        self.client.repos().update_invitation(&self.org, repo_name, invitation_id, &body).await?;
         Ok(())
     }
 
