@@ -240,14 +240,11 @@ impl State {
             Role::default()
         };
 
-        // Repositories added/removed
+        // Repositories added
         let repos_names_old: HashSet<&RepositoryName> = repos_old.keys().copied().collect();
         let repos_names_new: HashSet<&RepositoryName> = repos_new.keys().copied().collect();
         for repo_name in repos_names_new.difference(&repos_names_old) {
             changes.push(RepositoryChange::RepositoryAdded(repos_new[*repo_name].clone()));
-        }
-        for repo_name in repos_names_old.difference(&repos_names_new) {
-            changes.push(RepositoryChange::RepositoryRemoved(repo_name.to_string()));
         }
 
         // Repositories teams and collaborators added/removed
@@ -492,7 +489,6 @@ pub(crate) struct Changes {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RepositoryChange {
     RepositoryAdded(Repository),
-    RepositoryRemoved(RepositoryName),
     TeamAdded(RepositoryName, TeamName, Role),
     TeamRemoved(RepositoryName, TeamName),
     TeamRoleUpdated(RepositoryName, TeamName, Role),
@@ -509,10 +505,6 @@ impl Change for RepositoryChange {
             RepositoryChange::RepositoryAdded(repo) => ChangeDetails {
                 kind: "repository-added".to_string(),
                 extra: json!({ "repo": repo }),
-            },
-            RepositoryChange::RepositoryRemoved(repo_name) => ChangeDetails {
-                kind: "repository-removed".to_string(),
-                extra: json!({ "repo_name": repo_name }),
             },
             RepositoryChange::TeamAdded(repo_name, team_name, role) => ChangeDetails {
                 kind: "repository-team-added".to_string(),
@@ -573,9 +565,6 @@ impl Change for RepositoryChange {
                         }
                     }
                 }
-            }
-            RepositoryChange::RepositoryRemoved(repo_name) => {
-                write!(s, "- repository **{}** has been *removed*", repo_name)?;
             }
             RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                 write!(

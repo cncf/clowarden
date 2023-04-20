@@ -98,9 +98,6 @@ pub(crate) trait Svc {
     /// List teams in the organization.
     async fn list_teams(&self) -> Result<Vec<Team>, ClientError>;
 
-    /// Remove repository from organization.
-    async fn remove_repository(&self, repo_name: &RepositoryName) -> Result<(), ClientError>;
-
     /// Remove collaborator from repository.
     async fn remove_repository_collaborator(
         &self,
@@ -410,11 +407,6 @@ impl Svc for SvcApi {
     /// [Svc::list_teams]
     async fn list_teams(&self) -> Result<Vec<Team>, ClientError> {
         self.client.teams().list_all(&self.org).await
-    }
-
-    /// [Svc::remove_repository]
-    async fn remove_repository(&self, repo_name: &RepositoryName) -> Result<(), ClientError> {
-        self.client.repos().delete(&self.org, repo_name).await
     }
 
     /// [Svc::remove_repository_collaborator]
