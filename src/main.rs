@@ -91,7 +91,8 @@ async fn main() -> Result<()> {
     ]);
 
     // Setup and launch HTTP server
-    let router = handlers::setup_router(cfg.clone(), db.clone(), gh.clone(), jobs_tx);
+    let router = handlers::setup_router(cfg.clone(), db.clone(), gh.clone(), jobs_tx)
+        .context("error setting up http server router")?;
     let addr: SocketAddr = cfg.get_string("server.addr").unwrap().parse()?;
     info!("server started");
     info!(%addr, "listening");
@@ -116,6 +117,7 @@ async fn main() -> Result<()> {
 fn validate_config(cfg: &Config) -> Result<()> {
     // Required fields
     cfg.get_string("server.addr")?;
+    cfg.get_string("server.staticPath")?;
     cfg.get_int("githubApp.appId")?;
     cfg.get_int("githubApp.installationId")?;
     cfg.get_string("githubApp.privateKey")?;

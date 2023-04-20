@@ -12,7 +12,7 @@ use axum::{
         HeaderMap, HeaderValue, Response, StatusCode,
     },
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, get_service, post},
     Router,
 };
 use config::Config;
@@ -20,14 +20,21 @@ use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
 use sha2::Sha256;
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, path::Path, sync::Arc};
 use tokio::sync::mpsc;
 use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    set_header::SetResponseHeader,
+    trace::TraceLayer,
+};
 use tracing::{error, instrument, trace};
 
 /// Default cache duration for some API endpoints.
 const DEFAULT_API_MAX_AGE: usize = 300;
+
+/// Static files cache duration.
+const STATIC_CACHE_MAX_AGE: usize = 365 * 24 * 60 * 60;
 
 /// Header representing the kind of the event received.
 const GITHUB_EVENT_HEADER: &str = "X-GitHub-Event";
@@ -54,14 +61,28 @@ pub(crate) fn setup_router(
     db: DynDB,
     gh: DynGH,
     jobs_tx: mpsc::UnboundedSender<Job>,
-) -> Router {
+) -> Result<Router> {
+    // Setup some paths
+    let static_path = cfg.get_string("server.staticPath").unwrap();
+    let index_path = Path::new(&static_path).join("index.html");
+
     // Setup webhook secret
     let webhook_secret = cfg.get_string("githubApp.webhookSecret").unwrap();
 
     // Setup router
-    Router::new()
+    let router = Router::new()
         .route("/api/changes/search", get(search_changes))
-        .route("/api/events", post(event))
+        .route("/webhook/github", post(event))
+        .route("/", get_service(ServeFile::new(&index_path)))
+        .nest_service(
+            "/static",
+            get_service(SetResponseHeader::overriding(
+                ServeDir::new(static_path),
+                CACHE_CONTROL,
+                HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
+            )),
+        )
+        .fallback_service(get_service(ServeFile::new(&index_path)))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {
             cfg,
@@ -69,7 +90,9 @@ pub(crate) fn setup_router(
             gh,
             webhook_secret,
             jobs_tx,
-        })
+        });
+
+    Ok(router)
 }
 
 /// Handler that processes webhook events from GitHub.
