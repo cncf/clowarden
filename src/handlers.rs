@@ -27,6 +27,7 @@ use tower_http::{
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeader,
     trace::TraceLayer,
+    validate_request::ValidateRequestHeaderLayer,
 };
 use tracing::{error, instrument, trace};
 
@@ -70,7 +71,7 @@ pub(crate) fn setup_router(
     let webhook_secret = cfg.get_string("githubApp.webhookSecret").unwrap();
 
     // Setup router
-    let router = Router::new()
+    let mut router = Router::new()
         .route("/api/changes/search", get(search_changes))
         .route("/webhook/github", post(event))
         .route("/", get_service(ServeFile::new(&index_path)))
@@ -85,12 +86,19 @@ pub(crate) fn setup_router(
         .fallback_service(get_service(ServeFile::new(&index_path)))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {
-            cfg,
+            cfg: cfg.clone(),
             db,
             gh,
             webhook_secret,
             jobs_tx,
         });
+
+    // Setup basic auth
+    if cfg.get_bool("server.basicAuth.enabled").unwrap_or(false) {
+        let username = cfg.get_string("server.basicAuth.username")?;
+        let password = cfg.get_string("server.basicAuth.password")?;
+        router = router.layer(ValidateRequestHeaderLayer::basic(&username, &password));
+    }
 
     Ok(router)
 }
