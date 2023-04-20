@@ -67,7 +67,6 @@ pub(crate) fn setup_router(
     let static_path = cfg.get_string("server.staticPath").unwrap();
     let root_index_path = Path::new(&static_path).join("index.html");
     let audit_path = Path::new(&static_path).join("audit");
-    let audit_static_path = audit_path.join("static");
     let audit_index_path = audit_path.join("index.html");
 
     // Setup webhook secret
@@ -79,7 +78,7 @@ pub(crate) fn setup_router(
         .nest_service(
             "/static",
             get_service(SetResponseHeader::overriding(
-                ServeDir::new(audit_static_path),
+                ServeDir::new(audit_path),
                 CACHE_CONTROL,
                 HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
             )),

@@ -1,0 +1,4 @@
+:global(.form-select),
+:global(.input-group-sm .form-control) {
+  font-size: 0.8rem;
+}
