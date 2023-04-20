@@ -129,9 +129,6 @@ impl ServiceHandler for Handler {
         for change in changes.repositories.into_iter() {
             let err = match &change {
                 RepositoryChange::RepositoryAdded(repo) => self.svc.add_repository(repo).await.err(),
-                RepositoryChange::RepositoryRemoved(repo_name) => {
-                    self.svc.remove_repository(repo_name).await.err()
-                }
                 RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                     self.svc.add_repository_team(repo_name, team_name, role).await.err()
                 }
