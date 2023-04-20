@@ -8,10 +8,10 @@ use mockall::automock;
 use octorust::{
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     types::{
-        Affiliation, Collaborator, MinimalRepository, Order, OrganizationInvitation, Privacy,
-        ReposAddCollaboratorRequest, ReposCreateInOrgRequest, ReposCreateInOrgRequestVisibility,
-        ReposListOrgSort, ReposListOrgType, ReposUpdateInvitationRequest, ReposUpdateRequest,
-        RepositoryInvitation, SimpleUser, Team, TeamMembership, TeamMembershipRole,
+        Affiliation, Collaborator, MinimalRepository, Order, OrganizationInvitation, OrgsListMembersFilter,
+        OrgsListMembersRole, Privacy, ReposAddCollaboratorRequest, ReposCreateInOrgRequest,
+        ReposCreateInOrgRequestVisibility, ReposListOrgSort, ReposListOrgType, ReposUpdateInvitationRequest,
+        ReposUpdateRequest, RepositoryInvitation, SimpleUser, Team, TeamMembership, TeamMembershipRole,
         TeamsAddUpdateMembershipUserInOrgRequest, TeamsAddUpdateRepoPermissionsInOrgRequest,
         TeamsCreateRequest, TeamsListMembersInOrgRole,
     },
@@ -61,6 +61,9 @@ pub(crate) trait Svc {
         team_name: &TeamName,
         user_name: &UserName,
     ) -> Result<TeamMembership, ClientError>;
+
+    /// List organization admins.
+    async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError>;
 
     /// List repositories in the organization.
     async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError>;
@@ -336,6 +339,14 @@ impl Svc for SvcApi {
         user_name: &UserName,
     ) -> Result<TeamMembership, ClientError> {
         self.client.teams().get_membership_for_user_in_org(&self.org, team_name, user_name).await
+    }
+
+    /// [Svc::list_org_admins]
+    async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError> {
+        self.client
+            .orgs()
+            .list_all_members(&self.org, OrgsListMembersFilter::All, OrgsListMembersRole::Admin)
+            .await
     }
 
     /// [Svc::list_repositories]

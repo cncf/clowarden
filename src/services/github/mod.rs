@@ -55,9 +55,15 @@ impl Handler {
 impl ServiceHandler for Handler {
     /// [ServiceHandler::get_changes_summary]
     async fn get_changes_summary(&self, head_ref: &str) -> Result<ChangesSummary> {
-        let head_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), Some(head_ref)).await?;
+        let head_state = State::new_from_config(
+            self.cfg.clone(),
+            self.gh.clone(),
+            self.svc.clone(),
+            Some(head_ref),
+        )
+        .await?;
         let (changes, base_ref_config_status) =
-            match State::new_from_config(self.cfg.clone(), self.gh.clone(), None).await {
+            match State::new_from_config(self.cfg.clone(), self.gh.clone(), self.svc.clone(), None).await {
                 Ok(base_state) => {
                     let changes = base_state
                         .diff(&head_state)
@@ -82,7 +88,7 @@ impl ServiceHandler for Handler {
         let actual_state = State::new_from_service(self.svc.clone())
             .await
             .context("error getting actual state from service")?;
-        let desired_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), None)
+        let desired_state = State::new_from_config(self.cfg.clone(), self.gh.clone(), self.svc.clone(), None)
             .await
             .context("error getting desired state from configuration")?;
         let changes = actual_state.diff(&desired_state);

@@ -35,8 +35,16 @@ pub(crate) struct State {
 impl State {
     /// Create a new State instance from the configuration reference provided
     /// (or from the base reference when none is provided).
-    pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<State> {
+    pub(crate) async fn new_from_config(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        svc: DynSvc,
+        ref_: Option<&str>,
+    ) -> Result<State> {
         if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
+            let org_admins: Vec<UserName> =
+                svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
+
             let directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
@@ -44,17 +52,31 @@ impl State {
                 .repositories
                 .into_iter()
                 .map(|mut r| {
+                    // Set default visibility when none is provided
                     if r.visibility.is_none() {
                         r.visibility = Some(Visibility::default());
                     }
+
+                    // Remove organization admins from collaborators list
+                    if let Some(collaborators) = r.collaborators {
+                        r.collaborators = Some(
+                            collaborators
+                                .into_iter()
+                                .filter(|(user_name, _)| !org_admins.contains(user_name))
+                                .collect(),
+                        );
+                    }
+
                     r
                 })
                 .collect();
+
             let state = State {
                 directory,
                 repositories,
             };
             state.validate()?;
+
             return Ok(state);
         }
         Err(format_err!(
@@ -96,12 +118,14 @@ impl State {
         }
 
         // Repositories
+        let org_admins: Vec<UserName> = svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
         for repo in svc.list_repositories().await? {
-            // Collaborators (including pending invitations)
+            // Collaborators (including pending invitations and excluding org admins)
             let mut collaborators: HashMap<UserName, Role> = svc
                 .list_repository_collaborators(&repo.name)
                 .await?
                 .into_iter()
+                .filter(|c| !org_admins.contains(&c.login))
                 .map(|c| (c.login, c.permissions.into()))
                 .collect();
             for invitation in svc.list_repository_invitations(&repo.name).await?.into_iter() {
