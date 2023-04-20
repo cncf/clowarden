@@ -60,6 +60,8 @@ impl<'a> ValidationFailed<'a> {
 pub(crate) struct ValidationSucceeded<'a> {
     directory_changes: &'a ChangesSummary,
     services_changes: &'a HashMap<ServiceName, ChangesSummary>,
+    changes_found: bool,
+    invalid_base_ref_config_found: bool,
 }
 
 impl<'a> ValidationSucceeded<'a> {
@@ -67,9 +69,33 @@ impl<'a> ValidationSucceeded<'a> {
         directory_changes: &'a ChangesSummary,
         services_changes: &'a HashMap<ServiceName, ChangesSummary>,
     ) -> Self {
+        let changes_found = (|| {
+            if !directory_changes.changes.is_empty() {
+                return true;
+            }
+            for summary in services_changes.values() {
+                if !summary.changes.is_empty() {
+                    return true;
+                }
+            }
+            false
+        })();
+        let invalid_base_ref_config_found = (|| {
+            if directory_changes.base_ref_config_status.is_invalid() {
+                return true;
+            }
+            for summary in services_changes.values() {
+                if summary.base_ref_config_status.is_invalid() {
+                    return true;
+                }
+            }
+            false
+        })();
         Self {
             directory_changes,
             services_changes,
+            changes_found,
+            invalid_base_ref_config_found,
         }
     }
 }
