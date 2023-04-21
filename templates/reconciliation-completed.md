@@ -1,6 +1,19 @@
 ## Reconciliation completed
-{% if !errors_found %}
+{% if !errors_found ~%}
   #### ✅ The reconciliation completed successfully and all changes have been applied across the services!
+  {{~ "" +}}
+  {{~ "## Changes applied" -}}
+
+  {% for (service_name, changes) in changes_applied %}
+    {% if !changes.is_empty() ~%}
+      ### {{ service_name|capitalize }}
+
+      {%~ for change_applied in changes %}
+        {{~ change_applied.change.template_format().unwrap() -}}
+      {% endfor %}
+    {% endif %}
+  {%- endfor %}
+
 {% else ~%}
   #### ‼️ Some errors were found during the reconciliation
   {% for service_name in services ~%}
