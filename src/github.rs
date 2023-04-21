@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use cached::proc_macro::cached;
 use config::Config;
 #[cfg(test)]
 use mockall::automock;
@@ -88,18 +89,34 @@ impl GH for GHApi {
 
     /// [GH::get_file_content]
     async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String> {
-        let ref_ = ref_.unwrap_or(&self.branch);
-        let mut content = self
-            .client
-            .repos()
-            .get_content_file(&self.org, &self.repo, path, ref_)
-            .await?
-            .content
-            .as_bytes()
-            .to_owned();
-        content.retain(|b| !b" \n\t\r\x0b\x0c".contains(b));
-        let decoded_content = String::from_utf8(b64.decode(content)?)?;
-        Ok(decoded_content)
+        #[cached(
+            time = 60,
+            sync_writes = true,
+            result = true,
+            key = "String",
+            convert = r#"{ format!("{} {}", path, ref_.unwrap_or("base")) }"#
+        )]
+        async fn inner(
+            client: &Client,
+            org: &str,
+            repo: &str,
+            branch: &str,
+            path: &str,
+            ref_: Option<&str>,
+        ) -> Result<String> {
+            let ref_ = ref_.unwrap_or(branch);
+            let mut content = client
+                .repos()
+                .get_content_file(org, repo, path, ref_)
+                .await?
+                .content
+                .as_bytes()
+                .to_owned();
+            content.retain(|b| !b" \n\t\r\x0b\x0c".contains(b));
+            let decoded_content = String::from_utf8(b64.decode(content)?)?;
+            Ok(decoded_content)
+        }
+        inner(&self.client, &self.org, &self.repo, &self.branch, path, ref_).await
     }
 
     /// [GH::list_pr_files]

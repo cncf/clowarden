@@ -2,6 +2,7 @@ use super::state::{Repository, RepositoryName, Role, Visibility};
 use crate::directory::{self, TeamName, UserName};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
+use cached::proc_macro::cached;
 use config::Config;
 #[cfg(test)]
 use mockall::automock;
@@ -340,10 +341,20 @@ impl Svc for SvcApi {
 
     /// [Svc::list_org_admins]
     async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError> {
-        self.client
-            .orgs()
-            .list_all_members(&self.org, OrgsListMembersFilter::All, OrgsListMembersRole::Admin)
-            .await
+        #[cached(
+            time = 60,
+            sync_writes = true,
+            result = true,
+            key = "String",
+            convert = r#"{ format!("") }"#
+        )]
+        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>, ClientError> {
+            client
+                .orgs()
+                .list_all_members(org, OrgsListMembersFilter::All, OrgsListMembersRole::Admin)
+                .await
+        }
+        inner(&self.client, &self.org).await
     }
 
     /// [Svc::list_repositories]
@@ -372,7 +383,21 @@ impl Svc for SvcApi {
         &self,
         repo_name: &RepositoryName,
     ) -> Result<Vec<RepositoryInvitation>, ClientError> {
-        self.client.repos().list_all_invitations(&self.org, repo_name).await
+        #[cached(
+            time = 60,
+            sync_writes = true,
+            result = true,
+            key = "String",
+            convert = r#"{ format!("{}", repo_name) }"#
+        )]
+        async fn inner(
+            client: &Client,
+            org: &str,
+            repo_name: &str,
+        ) -> Result<Vec<RepositoryInvitation>, ClientError> {
+            client.repos().list_all_invitations(org, repo_name).await
+        }
+        inner(&self.client, &self.org, repo_name).await
     }
 
     /// [Svc::list_repository_teams]
