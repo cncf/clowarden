@@ -338,6 +338,46 @@ impl Change for DirectoryChange {
         }
     }
 
+    /// [Change::keywords]
+    fn keywords(&self) -> Vec<&str> {
+        match self {
+            DirectoryChange::TeamAdded(team) => {
+                let mut keywords = vec!["team", "added", &team.name];
+                for maintainer in &team.maintainers {
+                    keywords.push(maintainer);
+                }
+                for member in &team.members {
+                    keywords.push(member);
+                }
+                keywords
+            }
+            DirectoryChange::TeamRemoved(team_name) => {
+                vec!["team", "removed", team_name]
+            }
+            DirectoryChange::TeamMaintainerAdded(team_name, user_name) => {
+                vec!["team", "maintainer", "added", team_name, user_name]
+            }
+            DirectoryChange::TeamMaintainerRemoved(team_name, user_name) => {
+                vec!["team", "maintainer", "removed", team_name, user_name]
+            }
+            DirectoryChange::TeamMemberAdded(team_name, user_name) => {
+                vec!["team", "member", "added", team_name, user_name]
+            }
+            DirectoryChange::TeamMemberRemoved(team_name, user_name) => {
+                vec!["team", "member", "removed", team_name, user_name]
+            }
+            DirectoryChange::UserAdded(full_name) => {
+                vec!["user", "added", full_name]
+            }
+            DirectoryChange::UserRemoved(full_name) => {
+                vec!["user", "removed", full_name]
+            }
+            DirectoryChange::UserUpdated(full_name) => {
+                vec!["user", "updated", full_name]
+            }
+        }
+    }
+
     /// [Change::template_format]
     fn template_format(&self) -> Result<String> {
         let mut s = String::new();

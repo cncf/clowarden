@@ -13,6 +13,8 @@ declare
     v_applied_to timestamptz := (p_input->>'applied_to');
     v_pr_number bigint[];
     v_pr_merged_by text[];
+    v_tsquery_web tsquery := websearch_to_tsquery(p_input->>'ts_query_web');
+    v_tsquery_web_with_prefix_matching tsquery;
 begin
     -- Prepare filters
     if p_input ? 'service' and p_input->'service' <> 'null' then
@@ -30,6 +32,20 @@ begin
     if p_input ? 'pr_merged_by' and p_input->'pr_merged_by' <> 'null' then
         select array_agg(e::text) into v_pr_merged_by
         from jsonb_array_elements_text(p_input->'pr_merged_by') e;
+    end if;
+
+    -- Prepare v_tsquery_web_with_prefix_matching
+    if v_tsquery_web is not null then
+        select ts_rewrite(
+            v_tsquery_web,
+            format('
+                select
+                    to_tsquery(lexeme),
+                    to_tsquery(lexeme || '':*'')
+                from unnest(tsvector_to_array(to_tsvector(%L))) as lexeme
+                ', p_input->>'ts_query_web'
+            )
+        ) into v_tsquery_web_with_prefix_matching;
     end if;
 
     return query
@@ -51,6 +67,10 @@ begin
         from change c
         join reconciliation r using (reconciliation_id)
         where
+            case when v_tsquery_web is not null then
+                v_tsquery_web_with_prefix_matching @@ c.tsdoc
+            else true end
+        and
             case when cardinality(v_service) > 0 then
             c.service = any(v_service) else true end
         and

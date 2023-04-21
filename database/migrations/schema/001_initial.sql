@@ -17,6 +17,7 @@ create table if not exists change (
     extra jsonb,
     applied_at timestamptz not null,
     error text,
+    tsdoc tsvector not null,
     reconciliation_id uuid not null references reconciliation on delete restrict
 );
 

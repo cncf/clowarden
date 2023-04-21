@@ -558,6 +558,54 @@ impl Change for RepositoryChange {
         }
     }
 
+    /// [Change::keywords]
+    fn keywords(&self) -> Vec<&str> {
+        match self {
+            RepositoryChange::RepositoryAdded(repo) => {
+                let mut keywords = vec!["repository", "added", &repo.name];
+                if let Some(teams) = &repo.teams {
+                    for team_name in teams.keys() {
+                        keywords.push(team_name);
+                    }
+                }
+                if let Some(collaborators) = &repo.collaborators {
+                    for user_name in collaborators.keys() {
+                        keywords.push(user_name);
+                    }
+                }
+                keywords
+            }
+            RepositoryChange::TeamAdded(repo_name, team_name, _) => {
+                vec!["repository", "team", "added", repo_name, team_name]
+            }
+            RepositoryChange::TeamRemoved(repo_name, team_name) => {
+                vec!["repository", "team", "removed", repo_name, team_name]
+            }
+            RepositoryChange::TeamRoleUpdated(repo_name, team_name, _) => {
+                vec!["repository", "team", "updated", repo_name, team_name]
+            }
+            RepositoryChange::CollaboratorAdded(repo_name, user_name, _) => {
+                vec!["repository", "collaborator", "added", repo_name, user_name]
+            }
+            RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
+                vec!["repository", "collaborator", "removed", repo_name, user_name]
+            }
+            RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, _) => {
+                vec![
+                    "repository",
+                    "collaborator",
+                    "role",
+                    "updated",
+                    repo_name,
+                    user_name,
+                ]
+            }
+            RepositoryChange::VisibilityUpdated(repo_name, _) => {
+                vec!["repository", "visibility", "updated", repo_name]
+            }
+        }
+    }
+
     /// [Change::template_format]
     fn template_format(&self) -> Result<String> {
         let mut s = String::new();
