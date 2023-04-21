@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
+use futures::stream::{self, StreamExt};
 use octorust::types::{
     OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
     TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
@@ -88,72 +89,92 @@ impl State {
     pub(crate) async fn new_from_service(svc: DynSvc) -> Result<State> {
         let mut state = State::default();
 
-        // TODO: increase concurrency for requests done to service below
-
         // Teams
-        for team in svc.list_teams().await? {
-            // Maintainers and members (including pending invitations)
-            let mut maintainers: Vec<UserName> =
-                svc.list_team_maintainers(&team.slug).await?.into_iter().map(|u| u.login).collect();
-            let mut members: Vec<UserName> =
-                svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
-            for invitation in svc.list_team_invitations(&team.slug).await?.into_iter() {
-                let membership = svc.get_team_membership(&team.slug, &invitation.login).await?;
-                if membership.state == OrgMembershipState::Pending {
-                    match membership.role {
-                        TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
-                        TeamMembershipRole::Member => members.push(invitation.login),
-                        _ => {}
+        for team in stream::iter(svc.list_teams().await?)
+            .map(|team| async {
+                // Get maintainers and members (including pending invitations)
+                let mut maintainers: Vec<UserName> =
+                    svc.list_team_maintainers(&team.slug).await?.into_iter().map(|u| u.login).collect();
+                let mut members: Vec<UserName> =
+                    svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
+                for invitation in svc.list_team_invitations(&team.slug).await?.into_iter() {
+                    let membership = svc.get_team_membership(&team.slug, &invitation.login).await?;
+                    if membership.state == OrgMembershipState::Pending {
+                        match membership.role {
+                            TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
+                            TeamMembershipRole::Member => members.push(invitation.login),
+                            _ => {}
+                        }
                     }
                 }
-            }
 
-            state.directory.teams.push(Team {
-                name: team.slug,
-                display_name: Some(team.name),
-                maintainers,
-                members,
-                ..Default::default()
-            });
+                // Setup team from info collected
+                Ok(Team {
+                    name: team.slug,
+                    display_name: Some(team.name),
+                    maintainers,
+                    members,
+                    ..Default::default()
+                })
+            })
+            .buffer_unordered(8)
+            .collect::<Vec<Result<Team>>>()
+            .await
+        {
+            match team {
+                Ok(team) => state.directory.teams.push(team),
+                Err(err) => return Err(err.context("error getting team info")),
+            }
         }
 
         // Repositories
         let org_admins: Vec<UserName> = svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
-        for repo in svc.list_repositories().await? {
-            // Collaborators (including pending invitations and excluding org admins)
-            let mut collaborators: HashMap<UserName, Role> = svc
-                .list_repository_collaborators(&repo.name)
-                .await?
-                .into_iter()
-                .filter(|c| !org_admins.contains(&c.login))
-                .map(|c| (c.login, c.permissions.into()))
-                .collect();
-            for invitation in svc.list_repository_invitations(&repo.name).await?.into_iter() {
-                if let Some(invitee) = invitation.invitee {
-                    collaborators.insert(invitee.login, invitation.permissions.into());
+        for repo in stream::iter(svc.list_repositories().await?)
+            .map(|repo| async {
+                // Get collaborators (including pending invitations and excluding org admins)
+                let mut collaborators: HashMap<UserName, Role> = svc
+                    .list_repository_collaborators(&repo.name)
+                    .await?
+                    .into_iter()
+                    .filter(|c| !org_admins.contains(&c.login))
+                    .map(|c| (c.login, c.permissions.into()))
+                    .collect();
+                for invitation in svc.list_repository_invitations(&repo.name).await?.into_iter() {
+                    if let Some(invitee) = invitation.invitee {
+                        collaborators.insert(invitee.login, invitation.permissions.into());
+                    }
                 }
+                let collaborators = if collaborators.is_empty() {
+                    None
+                } else {
+                    Some(collaborators)
+                };
+
+                // Get teams
+                let teams: HashMap<TeamName, Role> = svc
+                    .list_repository_teams(&repo.name)
+                    .await?
+                    .into_iter()
+                    .map(|t| (t.name, t.permissions.into()))
+                    .collect();
+                let teams = if teams.is_empty() { None } else { Some(teams) };
+
+                // Setup repository from info collected
+                Ok(Repository {
+                    name: repo.name,
+                    collaborators,
+                    teams,
+                    visibility: Some(repo.visibility.into()),
+                })
+            })
+            .buffer_unordered(8)
+            .collect::<Vec<Result<Repository>>>()
+            .await
+        {
+            match repo {
+                Ok(repo) => state.repositories.push(repo),
+                Err(err) => return Err(err.context("error getting repository info")),
             }
-            let collaborators = if collaborators.is_empty() {
-                None
-            } else {
-                Some(collaborators)
-            };
-
-            // Teams
-            let teams: HashMap<TeamName, Role> = svc
-                .list_repository_teams(&repo.name)
-                .await?
-                .into_iter()
-                .map(|t| (t.name, t.permissions.into()))
-                .collect();
-            let teams = if teams.is_empty() { None } else { Some(teams) };
-
-            state.repositories.push(Repository {
-                name: repo.name,
-                collaborators,
-                teams,
-                visibility: Some(repo.visibility.as_str().into()),
-            });
         }
 
         Ok(state)
@@ -468,9 +489,9 @@ impl fmt::Display for Visibility {
     }
 }
 
-impl From<&str> for Visibility {
-    fn from(value: &str) -> Self {
-        match value {
+impl From<String> for Visibility {
+    fn from(value: String) -> Self {
+        match value.as_str() {
             "private" => Visibility::Private,
             "public" => Visibility::Public,
             _ => Visibility::default(),
