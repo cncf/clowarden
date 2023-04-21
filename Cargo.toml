@@ -10,10 +10,10 @@ rust-version = "1.67"
 anyhow = "1.0.70"
 askama = "0.12.0"
 async-trait = "0.1.68"
-axum = { version = "0.6.15", features = ["macros"] }
+axum = { version = "0.6.16", features = ["macros"] }
 base64 = "0.21.0"
 cached = "0.43.0"
-clap = { version = "4.2.2", features = ["derive"] }
+clap = { version = "4.2.4", features = ["derive"] }
 config = "0.13.3"
 deadpool-postgres = { version = "0.10.5", features = ["serde"] }
 futures = "0.3.28"
@@ -22,10 +22,10 @@ hex = "0.4.3"
 lazy_static = "1.4.0"
 mime = "0.3.17"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
-openssl = { version = "0.10.50", features = ["vendored"] }
+openssl = { version = "0.10.51", features = ["vendored"] }
 pem = "2.0.1"
 postgres-openssl = "0.5.0"
-regex = "1.7.3"
+regex = "1.8.0"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 serde_qs = "0.12.0"
