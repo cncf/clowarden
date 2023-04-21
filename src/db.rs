@@ -89,10 +89,27 @@ impl DB for PgDB {
             .await?
             .get("reconciliation_id");
 
+        // Prepare reconciliation keywords
+        let mut reconciliation_keywords: Vec<&str> = vec![];
+        let pr_number: String;
+        if let Some(value) = &input.pr_number {
+            pr_number = value.to_string();
+            reconciliation_keywords.push(&pr_number);
+        }
+        if let Some(user_name) = &input.pr_created_by {
+            reconciliation_keywords.push(user_name);
+        }
+        if let Some(user_name) = &input.pr_merged_by {
+            reconciliation_keywords.push(user_name);
+        }
+
         // Register changes
         for (service_name, service_changes_applied) in changes_applied {
             for change_applied in service_changes_applied {
                 let change_details = change_applied.change.details();
+                let mut change_keywords = reconciliation_keywords.clone();
+                change_keywords.extend_from_slice(change_applied.change.keywords().as_ref());
+
                 tx.execute(
                     "
                     insert into change (
@@ -101,14 +118,16 @@ impl DB for PgDB {
                         extra,
                         applied_at,
                         error,
-                        reconciliation_id
+                        reconciliation_id,
+                        tsdoc
                     ) values (
                         $1::text,
                         $2::text,
                         $3::jsonb,
                         $4::timestamptz,
                         $5::text,
-                        $6::uuid
+                        $6::uuid,
+                        to_tsvector($7::text)
                     )
                     ",
                     &[
@@ -118,6 +137,7 @@ impl DB for PgDB {
                         &change_applied.applied_at,
                         &change_applied.error,
                         &reconciliation_id,
+                        &change_keywords.join(" "),
                     ],
                 )
                 .await?;
@@ -157,4 +177,5 @@ pub(crate) struct SearchChangesInput {
     pub pr_number: Option<Vec<i64>>,
     pub pr_merged_by: Option<Vec<String>>,
     pub applied_successfully: Option<bool>,
+    pub ts_query_web: Option<String>,
 }

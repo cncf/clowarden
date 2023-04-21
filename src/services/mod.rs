@@ -46,6 +46,9 @@ pub(crate) trait Change: Debug {
     /// Return some details about the change.
     fn details(&self) -> ChangeDetails;
 
+    /// Keywords used to facilitate locating specific changes on searches.
+    fn keywords(&self) -> Vec<&str>;
+
     /// Format change to be used on a template.
     fn template_format(&self) -> Result<String>;
 }
