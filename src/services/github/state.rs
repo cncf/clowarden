@@ -284,17 +284,17 @@ impl State {
             if let Some(teams) = &repos_new[repo_name].teams {
                 teams_new = teams.iter().map(|(name, _)| name).collect();
             }
+            for team_name in teams_old.difference(&teams_new) {
+                changes.push(RepositoryChange::TeamRemoved(
+                    repo_name.to_string(),
+                    team_name.to_string(),
+                ))
+            }
             for team_name in teams_new.difference(&teams_old) {
                 changes.push(RepositoryChange::TeamAdded(
                     repo_name.to_string(),
                     team_name.to_string(),
                     team_role(&repos_new, repo_name, team_name),
-                ))
-            }
-            for team_name in teams_old.difference(&teams_new) {
-                changes.push(RepositoryChange::TeamRemoved(
-                    repo_name.to_string(),
-                    team_name.to_string(),
                 ))
             }
             for team_name in &teams_new {
@@ -322,17 +322,17 @@ impl State {
             if let Some(collaborators) = &repos_new[repo_name].collaborators {
                 collaborators_new = collaborators.iter().map(|(name, _)| name).collect();
             }
+            for user_name in collaborators_old.difference(&collaborators_new) {
+                changes.push(RepositoryChange::CollaboratorRemoved(
+                    repo_name.to_string(),
+                    user_name.to_string(),
+                ))
+            }
             for user_name in collaborators_new.difference(&collaborators_old) {
                 changes.push(RepositoryChange::CollaboratorAdded(
                     repo_name.to_string(),
                     user_name.to_string(),
                     user_role(&repos_new, repo_name, user_name),
-                ))
-            }
-            for user_name in collaborators_old.difference(&collaborators_new) {
-                changes.push(RepositoryChange::CollaboratorRemoved(
-                    repo_name.to_string(),
-                    user_name.to_string(),
                 ))
             }
             for user_name in &collaborators_new {
