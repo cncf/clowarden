@@ -375,7 +375,10 @@ impl Svc for SvcApi {
         &self,
         repo_name: &RepositoryName,
     ) -> Result<Vec<Collaborator>, ClientError> {
-        self.client.repos().list_all_collaborators(&self.org, repo_name, Affiliation::All).await
+        self.client
+            .repos()
+            .list_all_collaborators(&self.org, repo_name, Affiliation::Direct)
+            .await
     }
 
     /// [Svc::list_repository_invitations]
