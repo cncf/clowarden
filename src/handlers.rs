@@ -68,7 +68,7 @@ pub(crate) fn setup_router(
     let index_path = Path::new(&static_path).join("index.html");
 
     // Setup webhook secret
-    let webhook_secret = cfg.get_string("githubApp.webhookSecret").unwrap();
+    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret").unwrap();
 
     // Setup router
     let mut router = Router::new()
@@ -234,22 +234,22 @@ fn verify_signature(signature: Option<&HeaderValue>, secret: &[u8], body: &[u8])
 /// configuration files.
 async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent) -> Result<bool> {
     // Check if repository in PR matches with config
-    let cfg_repo = &cfg.get_string("config.repository").unwrap();
+    let cfg_repo = &cfg.get_string("server.config.repository").unwrap();
     if cfg_repo != &event.repository.name {
         return Ok(false);
     }
 
     // Check if base branch in PR matches with config
-    let cfg_branch = &cfg.get_string("config.branch").unwrap();
+    let cfg_branch = &cfg.get_string("server.config.branch").unwrap();
     if cfg_branch != &event.pull_request.base.ref_ {
         return Ok(false);
     }
 
     // Check if any of the configuration files is on the pr
-    if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
+    if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
         let legacy_cfg_files = &[
-            cfg.get_string("config.legacy.sheriff.permissionsPath").unwrap(),
-            cfg.get_string("config.legacy.cncf.peoplePath").unwrap(),
+            cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap(),
+            cfg.get_string("server.config.legacy.cncf.peoplePath").unwrap(),
         ];
         for filename in gh.list_pr_files(event.pull_request.number).await? {
             if legacy_cfg_files.contains(&filename) {

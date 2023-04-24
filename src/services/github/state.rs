@@ -42,7 +42,7 @@ impl State {
         svc: DynSvc,
         ref_: Option<&str>,
     ) -> Result<State> {
-        if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
+        if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
             let org_admins: Vec<UserName> =
                 svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
 
