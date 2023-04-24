@@ -14,7 +14,7 @@
     {% endif -%}
 
     {% for change in directory_changes.changes %}
-      {{~ change.template_format().unwrap() }}
+      {{~ change.template_format().unwrap() -}}
     {% endfor %}
   {%- endif -%}
 
