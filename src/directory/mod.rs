@@ -63,11 +63,11 @@ impl Directory {
         // Teams added/removed
         let teams_names_old: HashSet<&TeamName> = teams_old.keys().copied().collect();
         let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
-        for team_name in teams_names_new.difference(&teams_names_old) {
-            changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
-        }
         for team_name in teams_names_old.difference(&teams_names_new) {
             changes.push(DirectoryChange::TeamRemoved(team_name.to_string()));
+        }
+        for team_name in teams_names_new.difference(&teams_names_old) {
+            changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
         }
 
         // Teams maintainers and members added/removed
@@ -118,12 +118,12 @@ impl Directory {
         let users_fullnames_old: HashSet<&UserFullName> = users_old.keys().copied().collect();
         let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
         let mut users_added: Vec<&UserFullName> = vec![];
+        for full_name in users_fullnames_old.difference(&users_fullnames_new) {
+            changes.push(DirectoryChange::UserRemoved(full_name.to_string()));
+        }
         for full_name in users_fullnames_new.difference(&users_fullnames_old) {
             changes.push(DirectoryChange::UserAdded(full_name.to_string()));
             users_added.push(full_name);
-        }
-        for full_name in users_fullnames_old.difference(&users_fullnames_new) {
-            changes.push(DirectoryChange::UserRemoved(full_name.to_string()));
         }
 
         // Users updated
@@ -431,5 +431,247 @@ impl Change for DirectoryChange {
         }
 
         Ok(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::vec;
+
+    use super::*;
+
+    #[test]
+    fn diff_team_added() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            ..Default::default()
+        };
+        let dir1 = Directory::default();
+        let dir2 = Directory {
+            teams: vec![team1.clone()],
+            ..Default::default()
+        };
+        assert_eq!(dir1.diff(&dir2), vec![DirectoryChange::TeamAdded(team1)]);
+    }
+
+    #[test]
+    fn diff_team_removed() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            ..Default::default()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            ..Default::default()
+        };
+        let dir2 = Directory::default();
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::TeamRemoved("team1".to_string())]
+        );
+    }
+
+    #[test]
+    fn diff_team_maintainer_added() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            ..Default::default()
+        };
+        let team1_with_new_maintainer = Team {
+            maintainers: vec!["user1".to_string()],
+            ..team1.clone()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            ..Default::default()
+        };
+        let dir2 = Directory {
+            teams: vec![team1_with_new_maintainer],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::TeamMaintainerAdded(
+                "team1".to_string(),
+                "user1".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn diff_team_maintainer_removed() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            maintainers: vec!["user1".to_string()],
+            ..Default::default()
+        };
+        let team1_removing_maintainer = Team {
+            maintainers: vec![],
+            ..team1.clone()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            ..Default::default()
+        };
+        let dir2 = Directory {
+            teams: vec![team1_removing_maintainer],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::TeamMaintainerRemoved(
+                "team1".to_string(),
+                "user1".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn diff_team_member_added() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            ..Default::default()
+        };
+        let team1_with_new_member = Team {
+            members: vec!["user1".to_string()],
+            ..team1.clone()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            ..Default::default()
+        };
+        let dir2 = Directory {
+            teams: vec![team1_with_new_member],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::TeamMemberAdded(
+                "team1".to_string(),
+                "user1".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn diff_team_member_removed() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            members: vec!["user1".to_string()],
+            ..Default::default()
+        };
+        let team1_removing_member = Team {
+            members: vec![],
+            ..team1.clone()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            ..Default::default()
+        };
+        let dir2 = Directory {
+            teams: vec![team1_removing_member],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::TeamMemberRemoved(
+                "team1".to_string(),
+                "user1".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn diff_user_added() {
+        let user1 = User {
+            full_name: "user1".to_string(),
+            ..Default::default()
+        };
+        let dir1 = Directory::default();
+        let dir2 = Directory {
+            users: vec![user1],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::UserAdded("user1".to_string())]
+        );
+    }
+
+    #[test]
+    fn diff_user_removed() {
+        let user1 = User {
+            full_name: "user1".to_string(),
+            ..Default::default()
+        };
+        let dir1 = Directory {
+            users: vec![user1],
+            ..Default::default()
+        };
+        let dir2 = Directory::default();
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::UserRemoved("user1".to_string())]
+        );
+    }
+
+    #[test]
+    fn diff_user_updated() {
+        let user1 = User {
+            full_name: "user1".to_string(),
+            ..Default::default()
+        };
+        let user1_updated = User {
+            user_name: Some("user1".to_string()),
+            ..user1.clone()
+        };
+        let dir1 = Directory {
+            users: vec![user1],
+            ..Default::default()
+        };
+        let dir2 = Directory {
+            users: vec![user1_updated],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![DirectoryChange::UserUpdated("user1".to_string())]
+        );
+    }
+
+    #[test]
+    fn diff_multiple_changes() {
+        let team1 = Team {
+            name: "team1".to_string(),
+            ..Default::default()
+        };
+        let team1_with_new_maintainer = Team {
+            maintainers: vec!["user1".to_string()],
+            ..team1.clone()
+        };
+        let team2 = Team {
+            name: "team2".to_string(),
+            ..Default::default()
+        };
+        let user1 = User {
+            full_name: "user1".to_string(),
+            ..Default::default()
+        };
+        let dir1 = Directory {
+            teams: vec![team1],
+            users: vec![user1],
+        };
+        let dir2 = Directory {
+            teams: vec![team1_with_new_maintainer, team2.clone()],
+            ..Default::default()
+        };
+        assert_eq!(
+            dir1.diff(&dir2),
+            vec![
+                DirectoryChange::TeamAdded(team2),
+                DirectoryChange::TeamMaintainerAdded("team1".to_string(), "user1".to_string()),
+                DirectoryChange::UserRemoved("user1".to_string())
+            ]
+        );
     }
 }

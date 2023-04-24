@@ -12,8 +12,6 @@ CLOWarden's main goal is to ensure that the resources' **desired state**, as def
 
 CLOWarden monitors pull requests created in the configuration repository and, when applicable, it creates a reconciliation job to apply the necessary changes. This is what we call an on-demand reconciliation job: it's created as a result of a user's action, and changes are applied immediately once the pull request is merged.
 
-![reconciliation-completed](docs/screenshots/reconciliation-completed.png)
-
 Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state. So in addition to on-demand reconciliation jobs, CLOWarden runs periodic ones to ensure everything is all right when there are no changes in the configuration.
 
 ### State
@@ -30,7 +28,7 @@ Let's go through a full example to see how this would work in practice.
 
 Our goal in this example will be to create a new team (named *team1*) with one maintainer and one member, as well as a new repository (named *repo1*). We want to give *team1* write permissions on *repo1*, and we'd also like to add a external collaborator, named *collaborator1*, with read permissions.
 
-The first step will be to create a pull request to add the following to the configuration files (*please note that we are intentionally introducing a couple of errors in this code snippet*):
+The first step will be to create a pull request to add the following to the configuration files (*please note that we are intentionally introducing an error in this code snippet*):
 
 ```yaml
 teams:
@@ -47,13 +45,13 @@ repositories:
     teams:
       team1: write
     external_collaborators:
-      collaborator1: red
+      collaborator1: read
     visibility: public
 ```
 
 As soon as the pull request is created, CLOWarden will detect it and will proceed to **validate** the changes proposed. One of CLOWarden goals is to try to make it *as simple as possible for maintainers to review and approve suggested changes* to the configuration. To do that, CLOWarden provides feedback in pull requests in the form of comments. Suggested changes can be invalid for a number of reasons, like a syntax problem in the configuration file, or not following any of the rules, like using an invalid role when defining permissions. CLOWarden tries its best to give helpful feedback to the pull request creator, to point them in the right direction to address errors without requiring the maintainers intervention.
 
-In this case, the two errors we introduced intentionally were catched: we incorrectly defined the new team as *tem1*, but then used it as *team1* in the repository definition, and instead of using the *read* role we typed *red*, which isn't a valid role.
+In this case, the error we introduced intentionally was catched: we incorrectly defined the new team as *tem1*, but then used it as *team1* in the repository definition.
 
 ![validation-error](docs/screenshots/validation-error.png)
 
