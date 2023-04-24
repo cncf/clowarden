@@ -45,9 +45,9 @@ teams:
 repositories:
   - name: repo1
     teams:
-      - team1: write
+      team1: write
     external_collaborators:
-      - collaborator1: red
+      collaborator1: red
     visibility: public
 ```
 
