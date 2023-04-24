@@ -179,14 +179,14 @@ impl SvcApi {
     /// Create a new SvcApi instance.
     pub(crate) fn new(cfg: Arc<Config>) -> Result<Self, Error> {
         // Setup GitHub app credentials
-        let app_id = cfg.get_int("githubApp.appId").unwrap();
+        let app_id = cfg.get_int("server.githubApp.appId").unwrap();
         let app_private_key =
-            pem::parse(cfg.get_string("githubApp.privateKey").unwrap())?.contents().to_owned();
+            pem::parse(cfg.get_string("server.githubApp.privateKey").unwrap())?.contents().to_owned();
         let credentials =
             JWTCredentials::new(app_id, app_private_key).context("error setting up credentials")?;
 
         // Setup GitHub API client
-        let inst_id = cfg.get_int("githubApp.installationId").unwrap();
+        let inst_id = cfg.get_int("server.githubApp.installationId").unwrap();
         let tg = InstallationTokenGenerator::new(inst_id, credentials);
         let client = Client::new(
             format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
@@ -195,7 +195,7 @@ impl SvcApi {
 
         Ok(Self {
             client,
-            org: cfg.get_string("config.organization").unwrap(),
+            org: cfg.get_string("server.config.organization").unwrap(),
         })
     }
 }

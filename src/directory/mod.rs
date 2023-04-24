@@ -41,7 +41,7 @@ impl Directory {
     /// Create a new directory instance from the configuration reference
     /// provided (or from the base reference when none is provided).
     pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
-        if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
+        if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
             let legacy_cfg =
                 legacy::Cfg::get(cfg, gh, ref_).await.context("invalid directory configuration")?;
             return Ok(Self::from(legacy_cfg));

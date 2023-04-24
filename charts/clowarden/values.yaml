@@ -1,0 +1,115 @@
+# CLOWarden chart default configuration values
+
+imagePullSecrets: []
+imageTag: ""
+nameOverride: ""
+pullPolicy: IfNotPresent
+
+# Enable dynamic resource name prefix
+#
+# Enabling the dynamic resource name prefix ensures that the resources are named dynamically based on the Helm
+# installation's name. This allows multiple installations of this chart in a single Kubernetes namespace. The prefix
+# can be defined by using the `fullnameOverride`.
+dynamicResourceNamePrefixEnabled: false
+
+# Overwrites the installation's fullname generation (used for the dynamic resource name prefix)
+fullnameOverride: ""
+
+# Directory path where the configuration files should be mounted
+configDir: "/home/clowarden/.config/clowarden"
+
+# Database configuration
+db:
+  host: ""
+  port: "5432"
+  dbname: clowarden
+  user: postgres
+  password: postgres
+
+# Log configuration
+log:
+  # Output format [json|pretty]
+  format: json
+
+# Database migrator configuration
+dbmigrator:
+  job:
+    image:
+      # Database migrator image repository (without the tag)
+      repository: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
+
+# CLOWarden server configuration
+server:
+  # Address to listen on
+  addr: 0.0.0.0:9000
+
+  # Path with static assets
+  staticPath: /home/clowarden/web/build
+
+  # Basic auth configuration
+  basicAuth:
+    # Enable basic auth
+    enabled: false
+    # Basic auth username
+    username: clowarden
+    # Basic auth password
+    password: changeme
+
+  # GitHub application configuration
+  githubApp:
+    # GitHub application ID
+    appId: null
+    # GitHub application installation ID
+    installationId: null
+    # GitHub application private key path
+    privateKey: null
+    # GitHub application webhook secret
+    webhookSecret: null
+
+  # CLOWarden service configuration
+  config:
+    organization: null
+    repository: null
+    branch: main
+    legacy:
+      enabled: true
+      sheriff:
+        permissionsPath: config.yaml
+      cncf:
+        peoplePath: people.json
+    services:
+      github:
+        enabled: true
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    rules: []
+    tls: []
+
+  # Service configuration
+  service:
+    type: NodePort
+    port: 80
+
+  # Deployment configuration
+  deploy:
+    replicaCount: 1
+    image:
+      repository: public.ecr.aws/g6m3a0y9/clowarden
+    resources: {}
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  image:
+    repository: artifacthub/postgres
+    tag: latest
+  persistence:
+    mountPath: /data
+  postgresqlUsername: postgres
+  postgresqlPassword: postgres
+  postgresqlDatabase: clowarden
+  postgresqlDataDir: /data/pgdata

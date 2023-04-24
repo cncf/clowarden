@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
 
     // Setup services handlers
     let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
-    if cfg.get_bool("services.github.enabled").unwrap_or_default() {
+    if cfg.get_bool("server.config.services.github.enabled").unwrap_or_default() {
         let svc = Arc::new(services::github::service::SvcApi::new(cfg.clone())?);
         services.insert(
             services::github::SERVICE_NAME,
@@ -118,18 +118,18 @@ fn validate_config(cfg: &Config) -> Result<()> {
     // Required fields
     cfg.get_string("server.addr")?;
     cfg.get_string("server.staticPath")?;
-    cfg.get_int("githubApp.appId")?;
-    cfg.get_int("githubApp.installationId")?;
-    cfg.get_string("githubApp.privateKey")?;
-    cfg.get_string("githubApp.webhookSecret")?;
-    cfg.get_string("config.organization")?;
-    cfg.get_string("config.repository")?;
-    cfg.get_string("config.branch")?;
+    cfg.get_int("server.githubApp.appId")?;
+    cfg.get_int("server.githubApp.installationId")?;
+    cfg.get_string("server.githubApp.privateKey")?;
+    cfg.get_string("server.githubApp.webhookSecret")?;
+    cfg.get_string("server.config.organization")?;
+    cfg.get_string("server.config.repository")?;
+    cfg.get_string("server.config.branch")?;
 
     // Required fields when legacy config is used
-    if let Ok(true) = cfg.get_bool("config.legacy.enabled") {
-        cfg.get_string("config.legacy.sheriff.permissionsPath")?;
-        cfg.get_string("config.legacy.cncf.peoplePath")?;
+    if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
+        cfg.get_string("server.config.legacy.sheriff.permissionsPath")?;
+        cfg.get_string("server.config.legacy.cncf.peoplePath")?;
     }
 
     Ok(())
