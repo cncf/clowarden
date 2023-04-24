@@ -689,3 +689,305 @@ impl Change for RepositoryChange {
         Ok(s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::directory::User;
+
+    #[test]
+    fn diff_user_added_discarded() {
+        let user1 = User {
+            full_name: "user1".to_string(),
+            ..Default::default()
+        };
+        let state1 = State::default();
+        let state2 = State {
+            directory: Directory {
+                users: vec![user1],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(state1.diff(&state2), Changes::default());
+    }
+
+    #[test]
+    fn diff_repository_added() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            ..Default::default()
+        };
+        let state1 = State::default();
+        let state2 = State {
+            repositories: vec![repo1.clone()],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::RepositoryAdded(repo1)],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_team_added() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            ..Default::default()
+        };
+        let repo1_adding_team = Repository {
+            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_adding_team],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::TeamAdded(
+                    "repo1".to_string(),
+                    "team1".to_string(),
+                    Role::Write
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_team_removed() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            ..Default::default()
+        };
+        let repo1_removing_team = Repository {
+            teams: None,
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_removing_team],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::TeamRemoved(
+                    "repo1".to_string(),
+                    "team1".to_string(),
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_team_role_updated() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            ..Default::default()
+        };
+        let repo1_updating_team_role = Repository {
+            teams: Some(HashMap::from([("team1".to_string(), Role::Read)])),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_updating_team_role],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::TeamRoleUpdated(
+                    "repo1".to_string(),
+                    "team1".to_string(),
+                    Role::Read
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_collaborator_added() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            ..Default::default()
+        };
+        let repo1_adding_collaborator = Repository {
+            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_adding_collaborator],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::CollaboratorAdded(
+                    "repo1".to_string(),
+                    "user1".to_string(),
+                    Role::Write
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_collaborator_removed() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            ..Default::default()
+        };
+        let repo1_removing_collaborator = Repository {
+            collaborators: None,
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_removing_collaborator],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::CollaboratorRemoved(
+                    "repo1".to_string(),
+                    "user1".to_string(),
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_collaborator_role_updated() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            ..Default::default()
+        };
+        let repo1_updating_collaborator_role = Repository {
+            collaborators: Some(HashMap::from([("user1".to_string(), Role::Read)])),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_updating_collaborator_role],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::CollaboratorRoleUpdated(
+                    "repo1".to_string(),
+                    "user1".to_string(),
+                    Role::Read
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_repository_visibility_updated() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            visibility: Some(Visibility::Private),
+            ..Default::default()
+        };
+        let repo1_updating_visibility = Repository {
+            visibility: Some(Visibility::Public),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_updating_visibility],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![RepositoryChange::VisibilityUpdated(
+                    "repo1".to_string(),
+                    Visibility::Public
+                )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn diff_multiple_changes() {
+        let repo1 = Repository {
+            name: "repo1".to_string(),
+            teams: Some(HashMap::from([
+                ("team1".to_string(), Role::Write),
+                ("team2".to_string(), Role::Write),
+            ])),
+            visibility: Some(Visibility::Private),
+            ..Default::default()
+        };
+        let repo1_updated = Repository {
+            teams: Some(HashMap::from([
+                ("team1".to_string(), Role::Write),
+                ("team3".to_string(), Role::Write),
+            ])),
+            visibility: Some(Visibility::Public),
+            ..repo1.clone()
+        };
+        let state1 = State {
+            repositories: vec![repo1],
+            ..Default::default()
+        };
+        let state2 = State {
+            repositories: vec![repo1_updated],
+            ..Default::default()
+        };
+        assert_eq!(
+            state1.diff(&state2),
+            Changes {
+                repositories: vec![
+                    RepositoryChange::TeamRemoved("repo1".to_string(), "team2".to_string()),
+                    RepositoryChange::TeamAdded("repo1".to_string(), "team3".to_string(), Role::Write),
+                    RepositoryChange::VisibilityUpdated("repo1".to_string(), Visibility::Public)
+                ],
+                ..Default::default()
+            }
+        );
+    }
+}

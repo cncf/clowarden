@@ -12,6 +12,8 @@ CLOWarden's main goal is to ensure that the resources' **desired state**, as def
 
 CLOWarden monitors pull requests created in the configuration repository and, when applicable, it creates a reconciliation job to apply the necessary changes. This is what we call an on-demand reconciliation job: it's created as a result of a user's action, and changes are applied immediately once the pull request is merged.
 
+![reconciliation-completed-success](docs/screenshots/reconciliation-completed-success.png)
+
 Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state. So in addition to on-demand reconciliation jobs, CLOWarden runs periodic ones to ensure everything is all right when there are no changes in the configuration.
 
 ### State
@@ -85,7 +87,7 @@ To help to answer these questions quickly, CLOWarden provides an audit tool that
 
 ![audit-tool](docs/screenshots/audit-tool.png)
 
-The audit tool can be accessed by using a web browser and is available at: <https://YOUR-CLOWARDEN-URL/audit/>.
+The audit tool can be accessed by using a web browser and is available at: `https://YOUR-CLOWARDEN-URL/audit/`.
 
 ## Services supported
 

@@ -77,27 +77,24 @@ impl Directory {
                 continue;
             }
 
-            // Maintainers
             let maintainers_old: HashSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
             let maintainers_new: HashSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
+            let members_old: HashSet<&UserName> = teams_old[team_name].members.iter().collect();
+            let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
             for user_name in maintainers_old.difference(&maintainers_new) {
                 changes.push(DirectoryChange::TeamMaintainerRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
-            for user_name in maintainers_new.difference(&maintainers_old) {
-                changes.push(DirectoryChange::TeamMaintainerAdded(
+            for user_name in members_old.difference(&members_new) {
+                changes.push(DirectoryChange::TeamMemberRemoved(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
             }
-
-            // Members
-            let members_old: HashSet<&UserName> = teams_old[team_name].members.iter().collect();
-            let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
-            for user_name in members_old.difference(&members_new) {
-                changes.push(DirectoryChange::TeamMemberRemoved(
+            for user_name in maintainers_new.difference(&maintainers_old) {
+                changes.push(DirectoryChange::TeamMaintainerAdded(
                     team_name.to_string(),
                     user_name.to_string(),
                 ))
@@ -436,8 +433,6 @@ impl Change for DirectoryChange {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
 
     #[test]
@@ -477,7 +472,7 @@ mod tests {
             name: "team1".to_string(),
             ..Default::default()
         };
-        let team1_with_new_maintainer = Team {
+        let team1_adding_maintainer = Team {
             maintainers: vec!["user1".to_string()],
             ..team1.clone()
         };
@@ -486,7 +481,7 @@ mod tests {
             ..Default::default()
         };
         let dir2 = Directory {
-            teams: vec![team1_with_new_maintainer],
+            teams: vec![team1_adding_maintainer],
             ..Default::default()
         };
         assert_eq!(
@@ -532,7 +527,7 @@ mod tests {
             name: "team1".to_string(),
             ..Default::default()
         };
-        let team1_with_new_member = Team {
+        let team1_adding_member = Team {
             members: vec!["user1".to_string()],
             ..team1.clone()
         };
@@ -541,7 +536,7 @@ mod tests {
             ..Default::default()
         };
         let dir2 = Directory {
-            teams: vec![team1_with_new_member],
+            teams: vec![team1_adding_member],
             ..Default::default()
         };
         assert_eq!(
@@ -645,7 +640,7 @@ mod tests {
             name: "team1".to_string(),
             ..Default::default()
         };
-        let team1_with_new_maintainer = Team {
+        let team1_adding_maintainer = Team {
             maintainers: vec!["user1".to_string()],
             ..team1.clone()
         };
@@ -662,7 +657,7 @@ mod tests {
             users: vec![user1],
         };
         let dir2 = Directory {
-            teams: vec![team1_with_new_maintainer, team2.clone()],
+            teams: vec![team1_adding_maintainer, team2.clone()],
             ..Default::default()
         };
         assert_eq!(
