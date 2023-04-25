@@ -166,6 +166,11 @@ impl Directory {
         })
     }
 
+    /// Get team identified by the team name provided.
+    pub(crate) fn get_team(&self, team_name: &str) -> Option<&Team> {
+        self.teams.iter().find(|t| t.name == team_name)
+    }
+
     /// Get user identified by the user name provided.
     pub(crate) fn _get_user(&self, user_name: &str) -> Option<&User> {
         self.users.iter().find(|u| {

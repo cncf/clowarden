@@ -206,6 +206,29 @@ impl State {
     fn validate(&self) -> Result<()> {
         let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
 
+        // Helper closure to get the highest role from a team membership for a
+        // given user in the repository provided
+        let get_highest_team_role = |repo: &Repository, user_name: &UserName| {
+            let mut highest_team_role = None;
+            if let Some(teams) = &repo.teams {
+                for (team_name, role) in teams {
+                    if let Some(team) = self.directory.get_team(team_name) {
+                        if team.maintainers.contains(user_name) || team.members.contains(user_name) {
+                            if highest_team_role.is_none() {
+                                highest_team_role = Some((team_name.clone(), role.clone()));
+                            } else {
+                                let highest_role = highest_team_role.as_ref().unwrap().1.clone();
+                                if role > &highest_role {
+                                    highest_team_role = Some((team_name.clone(), role.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            highest_team_role
+        };
+
         for (i, repo) in self.repositories.iter().enumerate() {
             // Define id to be used in subsequent error messages. When
             // available, it'll be the repo name. Otherwise we'll use its
@@ -224,6 +247,23 @@ impl State {
                         merr.push(format_err!(
                             "repo[{id}]: team {team_name} does not exist in directory"
                         ));
+                    }
+                }
+            }
+
+            // Check explicitly defined collaborators haven't been assigned a
+            // role with less privileges than the ones they'd have from any of
+            // the teams they are members of
+            if let Some(collaborators) = &repo.collaborators {
+                for (user_name, user_role) in collaborators {
+                    let highest_team_role = get_highest_team_role(repo, user_name);
+                    if let Some((team_name, highest_team_role)) = highest_team_role {
+                        if &highest_team_role > user_role {
+                            merr.push(format_err!(
+                                "repo[{id}]: collaborator {user_name} already has {highest_team_role} \
+                                access from team {team_name}"
+                            ));
+                        }
                     }
                 }
             }
@@ -383,25 +423,25 @@ pub(crate) struct Repository {
 }
 
 /// Role a user or team may have been assigned.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Role {
-    Admin,
-    Maintain,
     #[default]
     Read,
     Triage,
     Write,
+    Maintain,
+    Admin,
 }
 
 impl fmt::Display for Role {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Role::Admin => write!(f, "admin"),
-            Role::Maintain => write!(f, "maintain"),
             Role::Read => write!(f, "read"),
             Role::Triage => write!(f, "triage"),
             Role::Write => write!(f, "write"),
+            Role::Maintain => write!(f, "maintain"),
+            Role::Admin => write!(f, "admin"),
         }
     }
 }
@@ -409,11 +449,11 @@ impl fmt::Display for Role {
 impl From<Option<RepositoryPermissions>> for Role {
     fn from(permissions: Option<RepositoryPermissions>) -> Self {
         match permissions {
-            Some(p) if p.admin => Role::Admin,
-            Some(p) if p.maintain => Role::Maintain,
-            Some(p) if p.push => Role::Write,
-            Some(p) if p.triage => Role::Triage,
             Some(p) if p.pull => Role::Read,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.admin => Role::Admin,
             Some(_) => Role::default(),
             None => Role::default(),
         }
@@ -423,11 +463,11 @@ impl From<Option<RepositoryPermissions>> for Role {
 impl From<RepositoryInvitationPermissions> for Role {
     fn from(permissions: RepositoryInvitationPermissions) -> Self {
         match permissions {
-            RepositoryInvitationPermissions::Admin => Role::Admin,
-            RepositoryInvitationPermissions::Maintain => Role::Maintain,
-            RepositoryInvitationPermissions::Write => Role::Write,
-            RepositoryInvitationPermissions::Triage => Role::Triage,
             RepositoryInvitationPermissions::Read => Role::Read,
+            RepositoryInvitationPermissions::Triage => Role::Triage,
+            RepositoryInvitationPermissions::Write => Role::Write,
+            RepositoryInvitationPermissions::Maintain => Role::Maintain,
+            RepositoryInvitationPermissions::Admin => Role::Admin,
             _ => Role::default(),
         }
     }
@@ -436,11 +476,11 @@ impl From<RepositoryInvitationPermissions> for Role {
 impl From<&Role> for RepositoryInvitationPermissions {
     fn from(role: &Role) -> Self {
         match role {
-            Role::Admin => RepositoryInvitationPermissions::Admin,
-            Role::Maintain => RepositoryInvitationPermissions::Maintain,
-            Role::Write => RepositoryInvitationPermissions::Write,
-            Role::Triage => RepositoryInvitationPermissions::Triage,
             Role::Read => RepositoryInvitationPermissions::Read,
+            Role::Triage => RepositoryInvitationPermissions::Triage,
+            Role::Write => RepositoryInvitationPermissions::Write,
+            Role::Maintain => RepositoryInvitationPermissions::Maintain,
+            Role::Admin => RepositoryInvitationPermissions::Admin,
         }
     }
 }
@@ -448,11 +488,11 @@ impl From<&Role> for RepositoryInvitationPermissions {
 impl From<&Role> for TeamsAddUpdateRepoPermissionsInOrgRequestPermission {
     fn from(role: &Role) -> Self {
         match role {
-            Role::Admin => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Admin,
-            Role::Maintain => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Maintain,
-            Role::Write => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Push,
-            Role::Triage => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Triage,
             Role::Read => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Pull,
+            Role::Triage => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Triage,
+            Role::Write => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Push,
+            Role::Maintain => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Maintain,
+            Role::Admin => TeamsAddUpdateRepoPermissionsInOrgRequestPermission::Admin,
         }
     }
 }
@@ -460,11 +500,11 @@ impl From<&Role> for TeamsAddUpdateRepoPermissionsInOrgRequestPermission {
 impl From<Option<TeamPermissions>> for Role {
     fn from(permissions: Option<TeamPermissions>) -> Self {
         match permissions {
-            Some(p) if p.admin => Role::Admin,
-            Some(p) if p.maintain => Role::Maintain,
-            Some(p) if p.push => Role::Write,
-            Some(p) if p.triage => Role::Triage,
             Some(p) if p.pull => Role::Read,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.admin => Role::Admin,
             Some(_) => Role::default(),
             None => Role::default(),
         }
