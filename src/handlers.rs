@@ -74,6 +74,7 @@ pub(crate) fn setup_router(
     let mut router = Router::new()
         .route("/api/changes/search", get(search_changes))
         .route("/webhook/github", post(event))
+        .route("/health-check", get(health_check))
         .route("/", get_service(ServeFile::new(&index_path)))
         .nest_service(
             "/static",
@@ -101,6 +102,11 @@ pub(crate) fn setup_router(
     }
 
     Ok(router)
+}
+
+/// Handler that takes care of health check requests.
+async fn health_check() -> impl IntoResponse {
+    ""
 }
 
 /// Handler that processes webhook events from GitHub.

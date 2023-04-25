@@ -36,7 +36,7 @@ dbmigrator:
   job:
     image:
       # Database migrator image repository (without the tag)
-      repository: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
+      repository: clowarden-dbmigrator
 
 # CLOWarden server configuration
 server:
@@ -98,7 +98,7 @@ server:
   deploy:
     replicaCount: 1
     image:
-      repository: public.ecr.aws/g6m3a0y9/clowarden
+      repository: clowarden
     resources: {}
 
 # PostgreSQL configuration
