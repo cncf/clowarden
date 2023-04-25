@@ -19,6 +19,7 @@ use octorust::{
     Client, ClientError,
 };
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
 /// Trait that defines some operations a Svc implementation must support.
 #[async_trait]
@@ -231,6 +232,7 @@ impl Svc for SvcApi {
             visibility,
         };
         self.client.repos().create_in_org(&self.org, &body).await?;
+        sleep(Duration::from_secs(1)).await;
 
         // Add repository teams
         if let Some(teams) = &repo.teams {
@@ -293,6 +295,7 @@ impl Svc for SvcApi {
             repo_names: vec![],
         };
         self.client.teams().create(&self.org, &body).await?;
+        sleep(Duration::from_secs(1)).await;
 
         // Add team members
         for user_name in &team.members {
