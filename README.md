@@ -14,7 +14,7 @@ CLOWarden monitors pull requests created in the configuration repository and, wh
 
 ![reconciliation-completed-success](docs/screenshots/reconciliation-completed-success.png)
 
-Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state. So in addition to on-demand reconciliation jobs, CLOWarden runs periodic ones to ensure everything is all right when there are no changes in the configuration.
+Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state. So in addition to on-demand reconciliation jobs, CLOWarden runs periodic ones to ensure everything is all right all the time.
 
 ### State
 
@@ -24,13 +24,13 @@ But teams and users may not be enough in some cases, and some service handlers m
 
 ## Sample workflow
 
-Changes to resources in services managed by CLOWarden should be proposed via pull requests. CLOWarden will check all pull requests created in the configuration repository and, when it detects that the PR contains changes to any of the configuration files, it will start working on it.
+Changes to resources in services managed by CLOWarden should be proposed via *pull requests*. CLOWarden will check all pull requests created in the configuration repository defined and, when it detects that the PR contains changes to any of the configuration files, it will start working on it.
 
 Let's go through a full example to see how this would work in practice.
 
 Our goal in this example will be to create a new team (named *team1*) with one maintainer and one member, as well as a new repository (named *repo1*). We want to give *team1* write permissions on *repo1*, and we'd also like to add a external collaborator, named *collaborator1*, with read permissions.
 
-The first step will be to create a pull request to add the following to the configuration files (*please note that we are intentionally introducing an error in this code snippet*):
+The first step will be to create a pull request to add the entries below to the configuration files (*please note that we are intentionally introducing an error in this code snippet*):
 
 ```yaml
 teams:
@@ -51,13 +51,15 @@ repositories:
     visibility: public
 ```
 
-As soon as the pull request is created, CLOWarden will detect it and will proceed to **validate** the changes proposed. One of CLOWarden goals is to try to make it *as simple as possible for maintainers to review and approve suggested changes* to the configuration. To do that, CLOWarden provides feedback in pull requests in the form of comments. Suggested changes can be invalid for a number of reasons, like a syntax problem in the configuration file, or not following any of the rules, like using an invalid role when defining permissions. CLOWarden tries its best to give helpful feedback to the pull request creator, to point them in the right direction to address errors without requiring the maintainers intervention.
+As soon as the pull request is created, CLOWarden will detect it and will proceed to **validate** the changes proposed.
+
+One of CLOWarden goals is to try to make it *as simple as possible for maintainers to review and approve suggested changes* to the configuration. To do that, CLOWarden provides feedback in pull requests in the form of comments. Suggested changes can be invalid for a number of reasons, like a syntax problem in the configuration file, or not following any of the rules, like using an invalid role when defining permissions. CLOWarden tries its best to give helpful feedback to the pull request creator, to point them in the right direction and help address errors without requiring the maintainers intervention.
 
 In this case, the error we introduced intentionally was catched: we incorrectly defined the new team as *tem1*, but then used it as *team1* in the repository definition.
 
 ![validation-error](docs/screenshots/validation-error.png)
 
-Please note that, in addition to the feedback comment, CLOWarden created a check to indicate that the configuration changes are not valid. This, when used in combination with branch protection, can help prevent that invalid configuration changes are merged.
+Please note that, in addition to the feedback comment, CLOWarden created a **check** in the PR to indicate that the configuration changes are not valid. When used in combination with branch protection, this can help prevent that invalid configuration changes are merged.
 
 ![invalid-config-check-run](docs/screenshots/invalid-config-check-run.png)
 
@@ -69,7 +71,7 @@ Now CLOWarden is happy with the changes proposed! This time, it also tries to he
 
 ![valid-config-check-run](docs/screenshots/valid-config-check-run.png)
 
-Now that the changes are valid, the check has been updated to reflect this status and the PR can be merged once the maintainers are ready. As soon as this happens, CLOWarden will create a reconciliation job and will apply the necessary changes so that the actual state in the services matches the new desired state defined in the configuration. Once the job is executed, a new comment will be posted on the PR with more details:
+Now that the changes are valid, the check has been updated to reflect the new status and the PR can be merged once the maintainers are ready. As soon as this happens, CLOWarden will create a reconciliation job and will apply the necessary changes so that the actual state in the services matches the new desired state defined in the configuration. Once the job is executed, a new comment will be posted on the PR with more details:
 
 ![reconciliation-completed-success](docs/screenshots/reconciliation-completed-success.png)
 
@@ -83,11 +85,9 @@ CLOWarden registers all changes applied to the services in a database. Even thou
 - *In what PR was team1 removed?*
 - *What changes have been applied by automatic periodic reconciliations during the last 24 hours?*
 
-To help to answer these questions quickly, CLOWarden provides an audit tool that allows maintainers to easily search and inspect applied changes.
+To help to answer these questions quickly, CLOWarden provides an audit tool that allows maintainers to easily search and inspect applied changes. The audit tool can be accessed by using a web browser and is available at: `https://YOUR-CLOWARDEN-URL/audit/`.
 
 ![audit-tool](docs/screenshots/audit-tool.png)
-
-The audit tool can be accessed by using a web browser and is available at: `https://YOUR-CLOWARDEN-URL/audit/`.
 
 ## Services supported
 
