@@ -449,11 +449,11 @@ impl fmt::Display for Role {
 impl From<Option<RepositoryPermissions>> for Role {
     fn from(permissions: Option<RepositoryPermissions>) -> Self {
         match permissions {
-            Some(p) if p.pull => Role::Read,
-            Some(p) if p.triage => Role::Triage,
-            Some(p) if p.push => Role::Write,
-            Some(p) if p.maintain => Role::Maintain,
             Some(p) if p.admin => Role::Admin,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.pull => Role::Read,
             Some(_) => Role::default(),
             None => Role::default(),
         }
@@ -500,11 +500,11 @@ impl From<&Role> for TeamsAddUpdateRepoPermissionsInOrgRequestPermission {
 impl From<Option<TeamPermissions>> for Role {
     fn from(permissions: Option<TeamPermissions>) -> Self {
         match permissions {
-            Some(p) if p.pull => Role::Read,
-            Some(p) if p.triage => Role::Triage,
-            Some(p) if p.push => Role::Write,
-            Some(p) if p.maintain => Role::Maintain,
             Some(p) if p.admin => Role::Admin,
+            Some(p) if p.maintain => Role::Maintain,
+            Some(p) if p.push => Role::Write,
+            Some(p) if p.triage => Role::Triage,
+            Some(p) if p.pull => Role::Read,
             Some(_) => Role::default(),
             None => Role::default(),
         }
