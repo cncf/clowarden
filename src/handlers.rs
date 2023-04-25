@@ -11,7 +11,7 @@ use axum::{
         header::{CACHE_CONTROL, CONTENT_TYPE},
         HeaderMap, HeaderValue, Response, StatusCode,
     },
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, get_service, post},
     Router,
 };
@@ -65,41 +65,51 @@ pub(crate) fn setup_router(
 ) -> Result<Router> {
     // Setup some paths
     let static_path = cfg.get_string("server.staticPath").unwrap();
-    let index_path = Path::new(&static_path).join("index.html");
+    let root_index_path = Path::new(&static_path).join("index.html");
+    let audit_path = Path::new(&static_path).join("audit");
+    let audit_static_path = audit_path.join("static");
+    let audit_index_path = audit_path.join("index.html");
 
     // Setup webhook secret
     let webhook_secret = cfg.get_string("server.githubApp.webhookSecret").unwrap();
 
-    // Setup router
-    let mut router = Router::new()
+    // Setup audit router
+    let mut audit_router = Router::new()
         .route("/api/changes/search", get(search_changes))
-        .route("/webhook/github", post(event))
-        .route("/health-check", get(health_check))
-        .route("/", get_service(ServeFile::new(&index_path)))
         .nest_service(
             "/static",
             get_service(SetResponseHeader::overriding(
-                ServeDir::new(static_path),
+                ServeDir::new(audit_static_path),
                 CACHE_CONTROL,
                 HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
             )),
         )
-        .fallback_service(get_service(ServeFile::new(&index_path)))
-        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
-        .with_state(RouterState {
-            cfg: cfg.clone(),
-            db,
-            gh,
-            webhook_secret,
-            jobs_tx,
-        });
+        .route("/", get_service(ServeFile::new(&audit_index_path)))
+        .fallback_service(get_service(ServeFile::new(&audit_index_path)));
 
     // Setup basic auth
     if cfg.get_bool("server.basicAuth.enabled").unwrap_or(false) {
         let username = cfg.get_string("server.basicAuth.username")?;
         let password = cfg.get_string("server.basicAuth.password")?;
-        router = router.layer(ValidateRequestHeaderLayer::basic(&username, &password));
+        audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(&username, &password));
     }
+
+    // Setup main router
+    let router = Router::new()
+        .route("/webhook/github", post(event))
+        .route("/health-check", get(health_check))
+        .route("/audit", get(|| async { Redirect::permanent("/audit/") }))
+        .route("/", get_service(ServeFile::new(&root_index_path)))
+        .nest("/audit/", audit_router)
+        .fallback_service(get_service(ServeFile::new(&root_index_path)))
+        .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
+        .with_state(RouterState {
+            cfg,
+            db,
+            gh,
+            webhook_secret,
+            jobs_tx,
+        });
 
     Ok(router)
 }

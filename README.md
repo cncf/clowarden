@@ -110,9 +110,9 @@ Operations supported:
 - Update collaborators' role in repository
 - Update repository visibility
 
-## Deploying your own instance
+## Using CLOWarden in your organization
 
-CLOWarden is still in an experimental phase and is subject to breaking changes, so we do not recommend to use it in production enviroments yet. Once it stabilizes, we'll publish some additional documentation to make it easier to run your own CLOWarden instance.
+CLOWarden is still in an experimental phase and breaking changes are expected, so we do not recommend to use it in production enviroments yet. Once it stabilizes, we'll publish some additional documentation to make it easier to run your own CLOWarden instance.
 
 ## Contributing
 
