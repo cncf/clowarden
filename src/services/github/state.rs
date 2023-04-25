@@ -46,7 +46,19 @@ impl State {
             let org_admins: Vec<UserName> =
                 svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
 
-            let directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
+            let mut directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
+
+            // Team's members that are org admins are considered maintainers by
+            // GitHub, so we do the same with the members defined in the config
+            for team in directory.teams.iter_mut() {
+                for (i, user_name) in team.members.clone().iter().enumerate() {
+                    if org_admins.contains(user_name) {
+                        team.members.remove(i);
+                        team.maintainers.push(user_name.to_owned());
+                    }
+                }
+            }
+
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
                 .context("invalid github service configuration")?
