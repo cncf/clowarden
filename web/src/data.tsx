@@ -113,6 +113,6 @@ export const DATE_RANGE: Option[] = [
   },
   {
     label: 'Last month',
-    value: '1m',
+    value: '1M',
   },
 ];

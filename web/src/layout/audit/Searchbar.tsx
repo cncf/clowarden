@@ -23,7 +23,7 @@ const Searchbar = () => {
   const search = () => {
     scrollToTop();
     navigate({
-      pathname: '/audit',
+      pathname: '/audit/',
       search: prepareQueryString({
         pageNumber: 1,
         ts_query_web: value,
@@ -36,7 +36,7 @@ const Searchbar = () => {
     if (currentSearch === value) {
       scrollToTop();
       navigate({
-        pathname: '/audit',
+        pathname: '/audit/',
         search: prepareQueryString({
           pageNumber: 1,
           ts_query_web: '',
