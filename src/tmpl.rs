@@ -9,6 +9,7 @@ use std::collections::HashMap;
 pub(crate) struct ReconciliationCompleted<'a> {
     services: Vec<ServiceName>,
     changes_applied: &'a HashMap<ServiceName, ChangesApplied>,
+    some_changes_applied: bool,
     errors: &'a HashMap<ServiceName, Error>,
     errors_found: bool,
 }
@@ -19,6 +20,14 @@ impl<'a> ReconciliationCompleted<'a> {
         errors: &'a HashMap<ServiceName, Error>,
     ) -> Self {
         let services = changes_applied.keys().chain(errors.keys()).map(|s| s.to_owned()).collect();
+        let some_changes_applied = (|| {
+            for service_changes_applied in changes_applied.values() {
+                if !service_changes_applied.is_empty() {
+                    return true;
+                }
+            }
+            false
+        })();
         let errors_found = (|| {
             if !errors.is_empty() {
                 return true;
@@ -35,6 +44,7 @@ impl<'a> ReconciliationCompleted<'a> {
         Self {
             services,
             changes_applied,
+            some_changes_applied,
             errors,
             errors_found,
         }

@@ -14,6 +14,10 @@
     {% endif %}
   {%- endfor %}
 
+  {%- if !some_changes_applied ~%}
+    No actionable changes detected.
+  {% endif -%}
+
 {% else ~%}
   #### ‼️ Some errors were found during the reconciliation
   {% for service_name in services ~%}
