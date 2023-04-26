@@ -63,7 +63,7 @@ const Audit = () => {
 
   const onResetFilters = (): void => {
     navigate({
-      pathname: '/audit',
+      pathname: '/audit/',
       search: prepareQueryString({
         pageNumber: 1,
         ts_query_web: text,
@@ -74,7 +74,7 @@ const Audit = () => {
 
   const onDateRangeChange = (timeRange?: string) => {
     navigate({
-      pathname: '/audit',
+      pathname: '/audit/',
       search: prepareQueryString({
         ...getCurrentFilters(),
         time_range: timeRange,
@@ -85,7 +85,7 @@ const Audit = () => {
 
   const updateCurrentPage = (searchChanges: any) => {
     navigate({
-      pathname: '/audit',
+      pathname: '/audit/',
       search: prepareQueryString({
         ...getCurrentFilters(),
         pageNumber: 1,
@@ -119,7 +119,7 @@ const Audit = () => {
     // Load pageNumber is forced before update Sorting criteria
     navigate(
       {
-        pathname: '/audit',
+        pathname: '/audit/',
         search: prepareQueryString({
           ...getCurrentFilters(),
           pageNumber: 1,
@@ -322,7 +322,7 @@ const Audit = () => {
                                 className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
                                 onClick={() => {
                                   navigate({
-                                    pathname: '/audit',
+                                    pathname: '/audit/',
                                     search: prepareQueryString({
                                       pageNumber: 1,
                                       filters: {},
