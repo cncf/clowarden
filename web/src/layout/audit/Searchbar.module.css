@@ -1,0 +1,13 @@
+.wrapper {
+  padding-left: 0.3rem;
+  padding-top: 0.3rem;
+}
+
+.questionMark {
+  margin-left: 0.25rem;
+  margin-top: -0.25rem;
+}
+
+.search {
+  box-shadow: 0 0 0 0.3rem var(--color-black-10) !important;
+}

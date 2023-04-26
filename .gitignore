@@ -1,4 +1,11 @@
 /target
+**/node_modules
+web/build
+web/build/audit
+web/src/media
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 .DS_Store
 .vscode
 Chart.lock
