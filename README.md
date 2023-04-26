@@ -4,7 +4,7 @@
 
 **CLOWarden** automatically manages organizations users, teams and other resources across multiple services.
 
-The CNCF has recently begun to use [Sheriff](https://github.com/cncf/sheriff) to manage people-related resources. CLOWarden is an *experiment* to replace Sheriff with a system that suits better the needs of the CNCF. To facilitate experimentation and make a potential transition easier, CLOWarden supports a legacy configuration mode that allows using a subset of the [Sheriff's permissions configuration file](https://github.com/electron/sheriff#permissions-file) to define resources like teams and GitHub repositories (the same file currently used by CNCF at <https://github.com/cncf/people/blob/main/config.yaml>).
+The CNCF has recently begun to use [Sheriff](https://github.com/cncf/sheriff) to manage people-related resources. CLOWarden is an *experiment* to replace Sheriff with a system that suits better the needs of the CNCF. To facilitate experimentation and make a potential transition easier, CLOWarden supports a legacy configuration mode that allows using a subset of the [Sheriff's permissions configuration file](https://github.com/electron/sheriff#permissions-file) and the [CNCF's people file](https://github.com/cncf/people/blob/main/people.json) to define resources like users, teams and GitHub repositories (the same files currently used by CNCF at <https://github.com/cncf/people>).
 
 ## How it works
 
