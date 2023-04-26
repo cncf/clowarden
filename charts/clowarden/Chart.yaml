@@ -1,6 +1,6 @@
 apiVersion: v2
 name: clowarden
-description: CLOWarden automatically manages organizations users, teams and other resources across multiple services
+description: CLOWarden is a tool that automatically manages organizations users, teams and other resources across multiple services
 type: application
 version: 0.1.0
 appVersion: 0.1.0
