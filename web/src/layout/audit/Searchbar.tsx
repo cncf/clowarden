@@ -49,7 +49,7 @@ const Searchbar = () => {
   };
 
   return (
-    <div className={`d-flex flex-row w-50 my-3 mx-auto position-relative ${styles.wrapper}`}>
+    <div className={`d-flex flex-row w-75 my-2 position-relative ${styles.wrapper}`}>
       <SearchbarForm
         value={value}
         onValueChange={(newValue: string) => setValue(newValue)}

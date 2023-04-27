@@ -111,7 +111,6 @@ class API_CLASS {
     }&sort_direction=${query.sort_direction || DEFAULT_SORT_DIRECTION}`;
 
     const timeRange = calculateTimeRange(query.time_range || DEFAULT_TIME_RANGE);
-    console.log(timeRange);
     q += `&applied_from=${encodeURIComponent(timeRange.from)}&applied_to=${encodeURIComponent(timeRange.to)}`;
 
     if (query.ts_query_web) {

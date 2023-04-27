@@ -34,7 +34,7 @@ const SelectedFilters = (props: Props) => {
   };
 
   return (
-    <div className="d-none d-md-block mt-2">
+    <div className="d-none d-md-block mt-4">
       <div className="d-flex flex-row justify-content-start align-items-baseline">
         <div className="me-3">Filters:</div>
         <div role="list" className={`position-relative ${styles.badges}`}>

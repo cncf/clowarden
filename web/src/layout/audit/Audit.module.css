@@ -11,6 +11,7 @@
 
 .searchResults {
   font-size: 0.9rem;
+  margin-right: 3rem;
 }
 
 label {
@@ -110,9 +111,17 @@ label {
 }
 
 .tableContent td {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--color-font) !important;
   padding: 0.5rem 0.65rem;
+}
+
+.tableContent > tr:nth-child(odd) > td {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] .tableContent > tr:nth-child(odd) > td {
+  --bs-table-accent-bg: rgba(255, 255, 255, 0.05);
 }
 
 .tableContent small {
@@ -139,6 +148,10 @@ label {
   list-style-type: '- ';
   padding-left: 1rem;
   margin-bottom: 0;
+}
+
+.tooltipWrapper {
+  margin-left: -3px;
 }
 
 @media only screen and (min-width: 1400px) {

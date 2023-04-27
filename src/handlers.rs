@@ -100,6 +100,14 @@ pub(crate) fn setup_router(
         .route("/audit", get(|| async { Redirect::permanent("/audit/") }))
         .route("/", get_service(ServeFile::new(&root_index_path)))
         .nest("/audit/", audit_router)
+        .nest_service(
+            "/static",
+            get_service(SetResponseHeader::overriding(
+                ServeDir::new(static_path),
+                CACHE_CONTROL,
+                HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
+            )),
+        )
         .fallback_service(get_service(ServeFile::new(&root_index_path)))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {

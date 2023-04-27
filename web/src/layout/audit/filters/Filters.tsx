@@ -1,5 +1,5 @@
 import { FilterSection, FiltersSection, InputFiltersSection } from 'clo-ui';
-import { isEmpty } from 'lodash';
+import { isEmpty, isUndefined } from 'lodash';
 import React from 'react';
 import { IoMdCloseCircleOutline } from 'react-icons/io';
 
@@ -26,7 +26,7 @@ const Filters = (props: Props) => {
       {props.visibleTitle && (
         <div className="d-flex flex-row align-items-center justify-content-between pb-2 mb-4 border-bottom">
           <div className="h6 text-uppercase mb-0 lh-base text-primary fw-bold">Filters</div>
-          {!isEmpty(props.activeFilters) && (
+          {(!isEmpty(props.activeFilters) || !isUndefined(props.timeRange)) && (
             <button className="btn btn-link text-primary" onClick={props.onResetFilters} aria-label="Reset filters">
               <div className="d-flex flex-row align-items-center">
                 <IoMdCloseCircleOutline className="me-2" />

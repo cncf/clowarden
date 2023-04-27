@@ -36,7 +36,7 @@ const Navbar = () => {
             Audit
           </Link>
           <ExternalLink
-            className="btn btn-md text-light fs-5"
+            className={`btn btn-md text-light fs-5 ${styles.ghLink}`}
             label="Github link"
             href="https://github.com/cncf/clowarden"
           >
