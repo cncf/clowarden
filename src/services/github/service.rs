@@ -67,6 +67,9 @@ pub(crate) trait Svc {
     /// List organization admins.
     async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError>;
 
+    /// List organization members.
+    async fn list_org_members(&self) -> Result<Vec<SimpleUser>, ClientError>;
+
     /// List repositories in the organization.
     async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError>;
 
@@ -355,6 +358,24 @@ impl Svc for SvcApi {
             client
                 .orgs()
                 .list_all_members(org, OrgsListMembersFilter::All, OrgsListMembersRole::Admin)
+                .await
+        }
+        inner(&self.client, &self.org).await
+    }
+
+    /// [Svc::list_org_members]
+    async fn list_org_members(&self) -> Result<Vec<SimpleUser>, ClientError> {
+        #[cached(
+            time = 60,
+            sync_writes = true,
+            result = true,
+            key = "String",
+            convert = r#"{ format!("") }"#
+        )]
+        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>, ClientError> {
+            client
+                .orgs()
+                .list_all_members(org, OrgsListMembersFilter::All, OrgsListMembersRole::All)
                 .await
         }
         inner(&self.client, &self.org).await
