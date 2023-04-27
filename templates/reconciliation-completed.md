@@ -35,10 +35,12 @@
       {% endfor %}
     {% endif %}
 
-    {% if errors.get(service_name.to_owned()).is_some() -%}
-      {{~ "```" +}}
-      {{~ errors.get(service_name.to_owned()).as_ref().unwrap() }}
-      {{~ "```" +}}
+    {% if errors.get(service_name.to_owned()).is_some() %}
+      {{~ "Errors:" -}}
+
+      {% for error in errors.get(service_name.to_owned()) %}
+        {{ error|format_error }}
+      {% endfor %}
     {%- endif %}
   {%- endfor %}
 {% endif -%}
