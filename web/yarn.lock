@@ -3145,9 +3145,9 @@ cliui@^7.0.2:
     strip-ansi "^6.0.0"
     wrap-ansi "^7.0.0"
 
-"clo-ui@https://github.com/cncf/clo-ui.git#f10c4f1532d9d0802ec19dff13d5eb50b3daf2c5":
+"clo-ui@https://github.com/cncf/clo-ui.git#57359aff4e5f2b5038564c52442d96f2d5993978":
   version "0.1.6"
-  resolved "https://github.com/cncf/clo-ui.git#f10c4f1532d9d0802ec19dff13d5eb50b3daf2c5"
+  resolved "https://github.com/cncf/clo-ui.git#57359aff4e5f2b5038564c52442d96f2d5993978"
   dependencies:
     "@types/react-date-range" "^1.4.4"
     bootstrap "^5.2.3"

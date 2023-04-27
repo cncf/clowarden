@@ -10,6 +10,10 @@
   letter-spacing: 2px;
 }
 
+.ghLink {
+  margin-top: -2px;
+}
+
 .alpha {
   background-color: var(--color-white-25);
   top: -8px;

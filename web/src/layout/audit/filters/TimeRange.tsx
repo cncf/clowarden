@@ -37,7 +37,6 @@ const TimeRange = (props: Props) => {
             {opt.label}
           </option>
         ))}
-        ;
       </select>
     </div>
   );

@@ -158,6 +158,8 @@ const Audit = () => {
       } catch {
         // TODO - error
         setApiError('An error occurred searching changes.');
+        setChanges([]);
+        setTotal(0);
       } finally {
         setIsLoading(false);
         scrollToTop();
@@ -187,7 +189,7 @@ const Audit = () => {
           <SubNavbar>
             <div className="d-flex flex-column w-100">
               <div className="d-flex flex-column flex-sm-row align-items-center justify-content-between flex-nowrap">
-                <div className="d-flex flex-row flex-md-column align-items-center align-items-md-start w-100 text-truncate">
+                <div className="d-flex flex-row flex-md-column align-items-center align-items-md-start w-100">
                   <Sidebar
                     label="Filters"
                     className="d-inline-block d-md-none me-2"
@@ -236,7 +238,11 @@ const Audit = () => {
                       />
                     </div>
                   </Sidebar>
-                  <div className={`text-truncate fw-bold w-100 ${styles.searchResults}`} role="status">
+
+                  <Searchbar />
+                </div>
+                <div className="d-flex flex-wrap flex-row justify-content-sm-end align-items-baseline mt-3 mt-sm-0 w-100">
+                  <div className={`fw-bold ${styles.searchResults}`} role="status">
                     {total > 0 && (
                       <span className="pe-1">
                         {calculateOffset(pageNumber) + 1} - {total < limit * pageNumber ? total : limit * pageNumber}{' '}
@@ -246,8 +252,6 @@ const Audit = () => {
                     {total}
                     <span className="ps-1"> changes </span>
                   </div>
-                </div>
-                <div className="d-flex flex-wrap flex-row justify-content-sm-end mt-3 mt-sm-0 w-100">
                   <SortOptions
                     options={SORT_OPTIONS as any[]}
                     by={sort.by}
@@ -298,7 +302,6 @@ const Audit = () => {
 
                 {changes && (
                   <>
-                    <Searchbar />
                     {isEmpty(changes) ? (
                       <NoData>
                         <div className="h4">
@@ -340,10 +343,8 @@ const Audit = () => {
                       </NoData>
                     ) : (
                       <div className={`ms-3 ${styles.list}`}>
-                        <table
-                          className={`table table-striped table-hover table-bordered table-md mb-0 ${styles.table}`}
-                        >
-                          <thead className={styles.tableHeader}>
+                        <table className={`table table-bordered table-md mb-0 ${styles.table}`}>
+                          <thead className={`lightText ${styles.tableHeader}`}>
                             <tr>
                               <th scope="col" className="text-center">
                                 Service
@@ -372,7 +373,7 @@ const Audit = () => {
                                   <tr>
                                     <td className="text-center align-middle">{change.service}</td>
                                     <td className="align-middle">
-                                      <div className="fw-semibold">{change.kind}</div>
+                                      <div className="fw-semibold lightText">{change.kind}</div>
                                       <div className="d-flex flex-row flex-nowrap align-items-center">
                                         {(() => {
                                           switch (change.kind) {
@@ -385,12 +386,11 @@ const Audit = () => {
                                                   </div>
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
-                                                      tooltipClassName={styles.tooltipMessage}
-                                                      className={`position-relative ms-1 ps-1 ${styles.tooltipIcon}`}
-                                                      element={<MdInfoOutline />}
+                                                      className="position-relative ms-1 ps-1"
+                                                      element={<MdInfoOutline className="cursorPointer" />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
-                                                        <div className={`text-start ${styles.tooltip}`}>
+                                                        <div className={`text-start p-2 ${styles.tooltip}`}>
                                                           <div>
                                                             <span className="text-uppercase text-muted">Name:</span>{' '}
                                                             {change.extra.team.name}
@@ -477,12 +477,11 @@ const Audit = () => {
                                                   </div>
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
-                                                      tooltipClassName={styles.tooltipMessage}
-                                                      className={`position-relative ms-1 ps-1 ${styles.tooltipIcon}`}
-                                                      element={<MdInfoOutline />}
+                                                      className="position-relative ms-1 ps-1"
+                                                      element={<MdInfoOutline className="cursorPointer" />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
-                                                        <div className={`text-start ${styles.tooltip}`}>
+                                                        <div className={`text-start p-2 ${styles.tooltip}`}>
                                                           <div>
                                                             <span className="text-uppercase text-muted">Name:</span>{' '}
                                                             {change.extra.repo.name}
@@ -669,9 +668,30 @@ const Audit = () => {
                                     </td>
                                     <td className="text-center align-middle fs-5">
                                       {isUndefined(change.error) ? (
-                                        <AiFillCheckCircle className="text-success" />
+                                        <ElementWithTooltip
+                                          className="position-relative"
+                                          tooltipClassName={styles.tooltipWrapper}
+                                          element={<AiFillCheckCircle className="cursorPointer text-success" />}
+                                          tooltipWidth={230}
+                                          tooltipMessage={<div className="p-2">Change applied successfully</div>}
+                                          visibleTooltip
+                                          active
+                                        />
                                       ) : (
-                                        <AiFillCloseCircle className="text-danger" />
+                                        <ElementWithTooltip
+                                          className="position-relative"
+                                          tooltipClassName={styles.tooltipWrapper}
+                                          element={<AiFillCloseCircle className="cursorPointer text-danger" />}
+                                          tooltipWidth={300}
+                                          tooltipMessage={
+                                            <div className="text-start p-2">
+                                              <div className="mb-2">Error applying change:</div>
+                                              {change.error}
+                                            </div>
+                                          }
+                                          visibleTooltip
+                                          active
+                                        />
                                       )}
                                     </td>
                                   </tr>

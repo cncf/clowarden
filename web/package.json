@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "classnames": "^2.3.2",
-    "clo-ui": "https://github.com/cncf/clo-ui.git#f10c4f1532d9d0802ec19dff13d5eb50b3daf2c5",
+    "clo-ui": "https://github.com/cncf/clo-ui.git#57359aff4e5f2b5038564c52442d96f2d5993978",
     "lodash": "^4.17.21",
     "moment": "^2.29.4",
     "react": "^18.2.0",
@@ -38,9 +38,12 @@
   },
   "scripts": {
     "copy:static": "shx rm -rf src/static && shx mkdir src/static && shx cp -r public/static/* src",
+    "copy:root-index": "cp build/audit/root_index.html build/index.html && shx rm build/audit/root_index.html",
+    "copy:images": "shx mkdir -p build/media && cp -r build/audit/media/*.png build/media",
+    "copy:manifest": "mv build/audit/manifest.json build",
     "analyze": "source-map-explorer 'build/static/js/*.js'",
     "start": "yarn copy:static && DANGEROUSLY_DISABLE_HOST_CHECK=true react-scripts start",
-    "build": "yarn copy:static && BUILD_PATH=./build/audit PUBLIC_URL=/audit INLINE_RUNTIME_CHUNK=false IMAGE_INLINE_SIZE_LIMIT=0 react-scripts build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && cp build/audit/root_index.html build/index.html && shx rm build/audit/root_index.html",
+    "build": "yarn copy:static && BUILD_PATH=./build/audit PUBLIC_URL=/audit INLINE_RUNTIME_CHUNK=false IMAGE_INLINE_SIZE_LIMIT=0 react-scripts build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && yarn copy:root-index && yarn copy:images && yarn copy:manifest",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "lint": "eslint --ext .js,.jsx,.ts,.tsx src --color",
