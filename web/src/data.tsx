@@ -4,7 +4,7 @@ import { ChangeKind, FilterKind, Option, SearchTipItem, Service, SortBy, SortDir
 
 export const DEFAULT_SORT_BY = SortBy.Date;
 export const DEFAULT_SORT_DIRECTION = SortDirection.DESC;
-export const DEFAULT_TIME_RANGE = '24h';
+export const DEFAULT_TIME_RANGE = '1M';
 export const PAGINATION_LIMIT = 50;
 
 export const SORT_OPTIONS: SortOption[] = [
