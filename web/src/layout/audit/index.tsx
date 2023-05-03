@@ -1,5 +1,6 @@
 import classNames from 'classnames';
 import {
+  DropdownOnHover,
   ElementWithTooltip,
   Loading,
   NoData,
@@ -387,7 +388,7 @@ const Audit = () => {
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
                                                       className="position-relative ms-1 ps-1"
-                                                      element={<MdInfoOutline className="cursorPointer" />}
+                                                      element={<MdInfoOutline />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
                                                         <div className={`text-start p-2 ${styles.tooltip}`}>
@@ -478,7 +479,7 @@ const Audit = () => {
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
                                                       className="position-relative ms-1 ps-1"
-                                                      element={<MdInfoOutline className="cursorPointer" />}
+                                                      element={<MdInfoOutline />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
                                                         <div className={`text-start p-2 ${styles.tooltip}`}>
@@ -671,27 +672,27 @@ const Audit = () => {
                                         <ElementWithTooltip
                                           className="position-relative"
                                           tooltipClassName={styles.tooltipWrapper}
-                                          element={<AiFillCheckCircle className="cursorPointer text-success" />}
+                                          element={<AiFillCheckCircle className="text-success" />}
                                           tooltipWidth={230}
                                           tooltipMessage={<div className="p-2">Change applied successfully</div>}
                                           visibleTooltip
                                           active
                                         />
                                       ) : (
-                                        <ElementWithTooltip
-                                          className="position-relative"
-                                          tooltipClassName={styles.tooltipWrapper}
-                                          element={<AiFillCloseCircle className="cursorPointer text-danger" />}
-                                          tooltipWidth={300}
-                                          tooltipMessage={
-                                            <div className="text-start p-2">
-                                              <div className="mb-2">Error applying change:</div>
-                                              {change.error}
+                                        <DropdownOnHover
+                                          dropdownClassName={styles.dropdown}
+                                          arrowClassName={styles.dropdownArrow}
+                                          width={500}
+                                          linkContent={<AiFillCloseCircle className="text-danger" />}
+                                          tooltipStyle
+                                        >
+                                          <div className="text-start pe-2 py-2">
+                                            <div className="mb-2">Error applying change:</div>
+                                            <div className={`mb-2 p-2 overflow-auto ${styles.codeError}`}>
+                                              <div className="w-100 text-break">{change.error}</div>
                                             </div>
-                                          }
-                                          visibleTooltip
-                                          active
-                                        />
+                                          </div>
+                                        </DropdownOnHover>
                                       )}
                                     </td>
                                   </tr>

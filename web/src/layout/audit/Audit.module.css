@@ -95,7 +95,7 @@ label {
 }
 
 .tableHeader th:nth-child(3) {
-  width: 150px;
+  width: 157px;
 }
 
 .tableHeader th:nth-child(4) {
@@ -152,6 +152,20 @@ label {
 
 .tooltipWrapper {
   margin-left: -3px;
+}
+
+.dropdown {
+  left: -450px;
+}
+
+.dropdownArrow {
+  left: 467px !important;
+}
+
+.codeError {
+  font-size: 0.8rem;
+  background-color: var(--color-black-5);
+  max-height: 130px;
 }
 
 @media only screen and (min-width: 1400px) {
