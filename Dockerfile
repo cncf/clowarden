@@ -1,5 +1,5 @@
 # Build clowarden
-FROM rust:1-alpine3.17 as builder
+FROM rust:1-alpine3.18 as builder
 RUN apk --no-cache add musl-dev perl make
 WORKDIR /clowarden
 COPY src src
@@ -19,7 +19,7 @@ RUN yarn install --network-concurrency 1
 RUN yarn build
 
 # Final stage
-FROM alpine:3.17.3
+FROM alpine:3.18.0
 RUN apk --no-cache add ca-certificates && addgroup -S clowarden && adduser -S clowarden -G clowarden
 USER clowarden
 WORKDIR /home/clowarden

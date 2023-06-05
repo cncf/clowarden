@@ -127,6 +127,7 @@ async fn health_check() -> impl IntoResponse {
 }
 
 /// Handler that processes webhook events from GitHub.
+#[allow(clippy::let_with_type_underscore)]
 #[instrument(skip_all, err(Debug))]
 async fn event(
     State(cfg): State<Arc<Config>>,
