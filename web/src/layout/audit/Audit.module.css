@@ -86,6 +86,11 @@ label {
   table-layout: fixed;
 }
 
+.table > :not(caption) > * > * {
+  background-color: transparent;
+  color: inherit;
+}
+
 .tableHeader {
   font-size: 0.85rem;
 }
