@@ -2,7 +2,7 @@ use crate::{
     jobs::ReconcileInput,
     services::{ChangesApplied, ServiceName},
 };
-use anyhow::Result;
+use anyhow::{Error, Result};
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 #[cfg(test)]
@@ -21,6 +21,7 @@ pub(crate) trait DB {
         &self,
         input: &ReconcileInput,
         changes_applied: &HashMap<ServiceName, ChangesApplied>,
+        errors: &HashMap<ServiceName, Error>,
     ) -> Result<()>;
 
     /// Search changes that match the criteria provided.
@@ -55,9 +56,24 @@ impl DB for PgDB {
         &self,
         input: &ReconcileInput,
         changes_applied: &HashMap<ServiceName, ChangesApplied>,
+        errors: &HashMap<ServiceName, Error>,
     ) -> Result<()> {
         let mut db = self.pool.get().await?;
         let tx = db.transaction().await?;
+
+        // Prepare reconciliation errors summary
+        let errors_summary = if !errors.is_empty() {
+            let mut summary = String::new();
+            for (i, (service_name, error)) in errors.iter().enumerate() {
+                summary.push_str(&format!("{}: {:?}", service_name, error));
+                if errors.len() > i + 1 {
+                    summary.push('\n');
+                }
+            }
+            Some(summary)
+        } else {
+            None
+        };
 
         // Register reconciliation entry
         let reconciliation_id: Uuid = tx
@@ -79,7 +95,7 @@ impl DB for PgDB {
                 returning reconciliation_id
                 ",
                 &[
-                    &input.error,
+                    &errors_summary,
                     &input.pr_number,
                     &input.pr_created_by,
                     &input.pr_merged_by,
