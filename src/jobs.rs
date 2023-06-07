@@ -43,7 +43,6 @@ pub(crate) enum Job {
 /// Information required to process a reconcile job.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ReconcileInput {
-    pub error: Option<String>,
     pub pr_number: Option<i64>,
     pub pr_created_by: Option<String>,
     pub pr_merged_by: Option<String>,
@@ -159,7 +158,7 @@ impl Handler {
         }
 
         // Register changes applied during reconciliation in database
-        if let Err(err) = self.db.register_reconciliation(&input, &changes_applied).await {
+        if let Err(err) = self.db.register_reconciliation(&input, &changes_applied, &errors).await {
             error!(?err, "error registering reconciliation in database");
         }
 
