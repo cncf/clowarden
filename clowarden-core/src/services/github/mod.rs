@@ -1,6 +1,6 @@
 use self::{
     service::DynSvc,
-    state::{RepositoryChange, RepositoryInvitationId, RepositoryName, State},
+    state::{RepositoryChange, RepositoryInvitationId, RepositoryName},
 };
 use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
 use crate::{
@@ -15,14 +15,15 @@ use std::sync::Arc;
 use tracing::debug;
 
 mod legacy;
-pub(crate) mod service;
+pub mod service;
 mod state;
+pub use state::State;
 
 /// GitHub's service name.
-pub(crate) const SERVICE_NAME: &str = "github";
+pub const SERVICE_NAME: &str = "github";
 
 /// GitHub's service handler.
-pub(crate) struct Handler {
+pub struct Handler {
     cfg: Arc<Config>,
     gh: DynGH,
     svc: DynSvc,
@@ -30,7 +31,7 @@ pub(crate) struct Handler {
 
 impl Handler {
     /// Create a new Handler instance.
-    pub(crate) fn new(cfg: Arc<Config>, gh: DynGH, svc: DynSvc) -> Self {
+    pub fn new(cfg: Arc<Config>, gh: DynGH, svc: DynSvc) -> Self {
         Self { cfg, gh, svc }
     }
 

@@ -1,14 +1,17 @@
 use crate::{
     db::DynDB,
-    directory::Directory,
     github::{self, DynGH},
-    multierror::MultiError,
-    services::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynServiceHandler, ServiceName},
     tmpl,
 };
 use ::time::OffsetDateTime;
 use anyhow::{Error, Result};
 use askama::Template;
+use clowarden_core::{
+    self as core,
+    directory::Directory,
+    multierror::MultiError,
+    services::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynServiceHandler, ServiceName},
+};
 use config::Config;
 use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
 use serde::{Deserialize, Serialize};
@@ -90,6 +93,7 @@ pub(crate) struct Handler {
     cfg: Arc<Config>,
     db: DynDB,
     gh: DynGH,
+    ghc: core::github::DynGH,
     services: HashMap<ServiceName, DynServiceHandler>,
 }
 
@@ -99,12 +103,14 @@ impl Handler {
         cfg: Arc<Config>,
         db: DynDB,
         gh: DynGH,
+        ghc: core::github::DynGH,
         services: HashMap<ServiceName, DynServiceHandler>,
     ) -> Self {
         Self {
             cfg,
             db,
             gh,
+            ghc,
             services,
         }
     }
@@ -201,18 +207,22 @@ impl Handler {
         let mut merr = MultiError::new(None);
 
         // Directory configuration validation
-        let directory_changes =
-            match Directory::get_changes_summary(self.cfg.clone(), self.gh.clone(), &input.pr_head_ref).await
-            {
-                Ok(changes) => changes,
-                Err(err) => {
-                    merr.push(err);
-                    ChangesSummary {
-                        changes: vec![],
-                        base_ref_config_status: BaseRefConfigStatus::Unknown,
-                    }
+        let directory_changes = match Directory::get_changes_summary(
+            self.cfg.clone(),
+            self.ghc.clone(),
+            &input.pr_head_ref,
+        )
+        .await
+        {
+            Ok(changes) => changes,
+            Err(err) => {
+                merr.push(err);
+                ChangesSummary {
+                    changes: vec![],
+                    base_ref_config_status: BaseRefConfigStatus::Unknown,
                 }
-            };
+            }
+        };
 
         // Services configuration validation
         let mut services_changes: HashMap<ServiceName, ChangesSummary> = HashMap::new();

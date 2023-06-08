@@ -21,14 +21,14 @@ use std::{
 };
 
 /// Type alias to represent a repository name.
-pub(crate) type RepositoryName = String;
+pub type RepositoryName = String;
 
 /// Type alias to represent a repository invitation_id.
-pub(crate) type RepositoryInvitationId = i64;
+pub type RepositoryInvitationId = i64;
 
 /// GitHub's service state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct State {
+pub struct State {
     pub directory: Directory,
     pub repositories: Vec<Repository>,
 }
@@ -36,7 +36,7 @@ pub(crate) struct State {
 impl State {
     /// Create a new State instance from the configuration reference provided
     /// (or from the base reference when none is provided).
-    pub(crate) async fn new_from_config(
+    pub async fn new_from_config(
         cfg: Arc<Config>,
         gh: DynGH,
         svc: DynSvc,
@@ -51,12 +51,14 @@ impl State {
             // Team's members that are org admins are considered maintainers by
             // GitHub, so we do the same with the members defined in the config
             for team in directory.teams.iter_mut() {
-                for (i, user_name) in team.members.clone().iter().enumerate() {
+                let mut org_admins_members = vec![];
+                for user_name in team.members.clone().iter() {
                     if org_admins.contains(user_name) {
-                        team.members.remove(i);
+                        org_admins_members.push(user_name.to_owned());
                         team.maintainers.push(user_name.to_owned());
                     }
                 }
+                team.members.retain(|user_name| !org_admins_members.contains(user_name));
             }
 
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
@@ -98,7 +100,7 @@ impl State {
     }
 
     /// Create a new State instance from the service's actual state.
-    pub(crate) async fn new_from_service(svc: DynSvc) -> Result<State> {
+    pub async fn new_from_service(svc: DynSvc) -> Result<State> {
         let mut state = State::default();
 
         // Teams
@@ -194,7 +196,7 @@ impl State {
 
     /// Returns the changes detected between this state instance and the new
     /// one provided.
-    pub(crate) fn diff(&self, new: &State) -> Changes {
+    pub fn diff(&self, new: &State) -> Changes {
         Changes {
             directory: self
                 .directory
@@ -434,7 +436,7 @@ impl State {
 
 /// Repository information.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Repository {
+pub struct Repository {
     pub name: String,
 
     #[serde(alias = "external_collaborators", skip_serializing_if = "Option::is_none")]
@@ -450,7 +452,7 @@ pub(crate) struct Repository {
 /// Role a user or team may have been assigned.
 #[derive(Debug, Clone, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Role {
+pub enum Role {
     #[default]
     Read,
     Triage,
@@ -539,9 +541,9 @@ impl From<Option<TeamPermissions>> for Role {
 /// Repository visibility.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Visibility {
-    #[default]
+pub enum Visibility {
     Private,
+    #[default]
     Public,
 }
 
@@ -566,14 +568,14 @@ impl From<String> for Visibility {
 
 /// Represents the changes between two states.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Changes {
+pub struct Changes {
     pub directory: Vec<DirectoryChange>,
     pub repositories: Vec<RepositoryChange>,
 }
 
 /// Represents a repository change.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum RepositoryChange {
+pub enum RepositoryChange {
     RepositoryAdded(Repository),
     TeamAdded(RepositoryName, TeamName, Role),
     TeamRemoved(RepositoryName, TeamName),

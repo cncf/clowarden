@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "clowarden-cli",
+    "clowarden-core",
     "clowarden-server"
 ]
 
@@ -17,6 +19,7 @@ axum = { version = "0.6.18", features = ["macros"] }
 base64 = "0.21.2"
 cached = "0.44.0"
 clap = { version = "4.3.1", features = ["derive"] }
+clowarden-core = { path = "../clowarden-core" }
 config = "0.13.3"
 deadpool-postgres = { version = "0.10.5", features = ["serde"] }
 futures = "0.3.28"

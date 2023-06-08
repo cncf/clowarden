@@ -22,17 +22,17 @@ lazy_static! {
 }
 
 /// Type alias to represent a team name.
-pub(crate) type TeamName = String;
+pub type TeamName = String;
 
 /// Type alias to represent a username.
-pub(crate) type UserName = String;
+pub type UserName = String;
 
 /// Type alias to represent a user full name.
-pub(crate) type UserFullName = String;
+pub type UserFullName = String;
 
 /// Directory configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Directory {
+pub struct Directory {
     pub teams: Vec<Team>,
     pub users: Vec<User>,
 }
@@ -40,7 +40,7 @@ pub(crate) struct Directory {
 impl Directory {
     /// Create a new directory instance from the configuration reference
     /// provided (or from the base reference when none is provided).
-    pub(crate) async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+    pub async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
             let legacy_cfg =
                 legacy::Cfg::get(cfg, gh, ref_).await.context("invalid directory configuration")?;
@@ -53,7 +53,7 @@ impl Directory {
 
     /// Returns the changes detected between this directory instance and the
     /// new one provided.
-    pub(crate) fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
+    pub fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 
         // Teams
@@ -142,11 +142,7 @@ impl Directory {
 
     /// Return a summary of the changes detected in the directory from the base
     /// to the head reference.
-    pub(crate) async fn get_changes_summary(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        head_ref: &str,
-    ) -> Result<ChangesSummary> {
+    pub async fn get_changes_summary(cfg: Arc<Config>, gh: DynGH, head_ref: &str) -> Result<ChangesSummary> {
         let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
         let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
             Ok(directory_base) => {
@@ -167,12 +163,12 @@ impl Directory {
     }
 
     /// Get team identified by the team name provided.
-    pub(crate) fn get_team(&self, team_name: &str) -> Option<&Team> {
+    pub fn get_team(&self, team_name: &str) -> Option<&Team> {
         self.teams.iter().find(|t| t.name == team_name)
     }
 
     /// Get user identified by the user name provided.
-    pub(crate) fn _get_user(&self, user_name: &str) -> Option<&User> {
+    pub fn get_user(&self, user_name: &str) -> Option<&User> {
         self.users.iter().find(|u| {
             if let Some(entry_user_name) = &u.user_name {
                 return entry_user_name == user_name;
@@ -244,7 +240,7 @@ impl From<legacy::Cfg> for Directory {
 
 /// Team configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Team {
+pub struct Team {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -262,7 +258,7 @@ pub(crate) struct Team {
 
 /// User profile.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct User {
+pub struct User {
     pub full_name: String,
     pub user_name: Option<UserName>,
     pub email: Option<String>,
@@ -285,7 +281,7 @@ pub(crate) struct User {
 /// Represents a change in the directory.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum DirectoryChange {
+pub enum DirectoryChange {
     TeamAdded(Team),
     TeamRemoved(TeamName),
     TeamMaintainerAdded(TeamName, UserName),

@@ -3,6 +3,8 @@ FROM rust:1-alpine3.18 as builder
 RUN apk --no-cache add musl-dev perl make
 WORKDIR /clowarden
 COPY Cargo.* ./
+COPY clowarden-cli/Cargo.* clowarden-cli
+COPY clowarden-core clowarden-core
 COPY clowarden-server clowarden-server
 WORKDIR /clowarden/clowarden-server
 RUN cargo build --release

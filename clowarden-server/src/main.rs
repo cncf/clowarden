@@ -1,10 +1,10 @@
-use crate::{
-    db::PgDB,
-    github::GHApi,
-    services::{DynServiceHandler, ServiceName},
-};
+use crate::db::PgDB;
 use anyhow::{Context, Result};
 use clap::Parser;
+use clowarden_core::{
+    self as core,
+    services::{self, DynServiceHandler, ServiceName},
+};
 use config::{Config, File};
 use deadpool_postgres::{Config as DbConfig, Runtime};
 use futures::future;
@@ -19,12 +19,9 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod db;
-mod directory;
 mod github;
 mod handlers;
 mod jobs;
-mod multierror;
-mod services;
 mod tmpl;
 
 #[derive(Debug, Parser)]
@@ -67,23 +64,26 @@ async fn main() -> Result<()> {
     let pool = db_cfg.create_pool(Some(Runtime::Tokio1), connector)?;
     let db = Arc::new(PgDB::new(pool));
 
-    // Setup GitHub client
-    let gh = Arc::new(GHApi::new(cfg.clone()).context("error setting up github client")?);
+    // Setup GitHub clients
+    let gh = Arc::new(github::GHApi::new(cfg.clone()).context("error setting up github client")?);
+    let ghc = Arc::new(
+        core::github::GHApi::new_from_config(cfg.clone()).context("error setting up core github client")?,
+    );
 
     // Setup services handlers
     let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
     if cfg.get_bool("server.config.services.github.enabled").unwrap_or_default() {
-        let svc = Arc::new(services::github::service::SvcApi::new(cfg.clone())?);
+        let svc = Arc::new(services::github::service::SvcApi::new_from_config(cfg.clone())?);
         services.insert(
             services::github::SERVICE_NAME,
-            Box::new(services::github::Handler::new(cfg.clone(), gh.clone(), svc)),
+            Box::new(services::github::Handler::new(cfg.clone(), ghc.clone(), svc)),
         );
     }
 
     // Setup and launch jobs workers
     let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(cfg.clone(), db.clone(), gh.clone(), services);
+    let jobs_handler = jobs::Handler::new(cfg.clone(), db.clone(), gh.clone(), ghc.clone(), services);
     let jobs_scheduler = jobs::Scheduler::new();
     let jobs_workers_done = future::join_all([
         jobs_handler.start(jobs_rx, stop_tx.subscribe()),

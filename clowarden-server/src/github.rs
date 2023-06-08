@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::http::HeaderValue;
-use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use config::Config;
 #[cfg(test)]
 use mockall::automock;
@@ -24,9 +23,6 @@ pub(crate) trait GH {
     /// Create a check run.
     async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()>;
 
-    /// Get file content.
-    async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String>;
-
     /// List pull request files.
     async fn list_pr_files(&self, pr_number: i64) -> Result<Vec<FileName>>;
 
@@ -48,7 +44,6 @@ pub(crate) struct GHApi {
     client: Client,
     org: String,
     repo: String,
-    branch: String,
 }
 
 impl GHApi {
@@ -73,7 +68,6 @@ impl GHApi {
             client,
             org: cfg.get_string("server.config.organization").unwrap(),
             repo: cfg.get_string("server.config.repository").unwrap(),
-            branch: cfg.get_string("server.config.branch").unwrap(),
         })
     }
 }
@@ -84,22 +78,6 @@ impl GH for GHApi {
     async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()> {
         _ = self.client.checks().create(&self.org, &self.repo, body).await?;
         Ok(())
-    }
-
-    /// [GH::get_file_content]
-    async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String> {
-        let ref_ = ref_.unwrap_or(&self.branch);
-        let mut content = self
-            .client
-            .repos()
-            .get_content_file(&self.org, &self.repo, path, ref_)
-            .await?
-            .content
-            .as_bytes()
-            .to_owned();
-        content.retain(|b| !b" \n\t\r\x0b\x0c".contains(b));
-        let decoded_content = String::from_utf8(b64.decode(content)?)?;
-        Ok(decoded_content)
     }
 
     /// [GH::list_pr_files]
