@@ -98,7 +98,7 @@ server:
   deploy:
     replicaCount: 1
     image:
-      repository: clowarden
+      repository: clowarden-server
     resources: {}
 
 # PostgreSQL configuration
