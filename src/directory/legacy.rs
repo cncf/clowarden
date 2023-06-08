@@ -45,7 +45,11 @@ impl Cfg {
 }
 
 pub(crate) mod sheriff {
-    use crate::{directory::UserName, github::DynGH, multierror::MultiError};
+    use crate::{
+        directory::{TeamName, UserName},
+        github::DynGH,
+        multierror::MultiError,
+    };
     use anyhow::{format_err, Context, Error, Result};
     use config::Config;
     use serde::{Deserialize, Serialize};
@@ -61,14 +65,66 @@ pub(crate) mod sheriff {
     impl Cfg {
         /// Get sheriff configuration.
         pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+            // Fetch configuration file and parse it
             let path = &cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap();
             let content =
                 gh.get_file_content(path, ref_).await.context("error getting sheriff permissions file")?;
-            let cfg: Cfg = serde_yaml::from_str(&content)
+            let mut cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
                 .context("error parsing sheriff permissions file")?;
+
+            // Process and validate configuration
+            cfg.process_composite_teams();
+            cfg.remove_duplicates();
             cfg.validate()?;
+
             Ok(cfg)
+        }
+
+        /// Extend team's maintainers and members with the maintainers and
+        /// members of the teams listed in the formation field.
+        fn process_composite_teams(&mut self) {
+            let teams_copy = self.teams.clone();
+
+            for team in self.teams.iter_mut() {
+                if let Some(formation) = &team.formation {
+                    for team_name in formation {
+                        if let Some(source_team) = teams_copy.iter().find(|t| &t.name == team_name) {
+                            // Maintainers
+                            if let Some(maintainers) = team.maintainers.as_mut() {
+                                maintainers
+                                    .extend_from_slice(source_team.maintainers.as_ref().unwrap_or(&vec![]));
+                            } else {
+                                team.maintainers = source_team.maintainers.clone();
+                            }
+
+                            // Members
+                            if let Some(members) = team.members.as_mut() {
+                                members.extend_from_slice(source_team.members.as_ref().unwrap_or(&vec![]));
+                            } else {
+                                team.members = source_team.members.clone();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Remove duplicates in teams' maintainers and members.
+        fn remove_duplicates(&mut self) {
+            for team in self.teams.iter_mut() {
+                // Maintainers
+                if let Some(maintainers) = team.maintainers.as_mut() {
+                    maintainers.sort();
+                    maintainers.dedup();
+                }
+
+                // Members
+                if let Some(members) = team.members.as_mut() {
+                    members.sort();
+                    members.dedup();
+                }
+            }
         }
 
         /// Validate configuration.
@@ -104,13 +160,13 @@ pub(crate) mod sheriff {
                 }
 
                 // At least one maintainer required
-                if team.maintainers.is_empty() {
+                if team.maintainers.as_ref().unwrap_or(&vec![]).is_empty() {
                     merr.push(format_err!("team[{id}]: must have at least one maintainer"));
                 }
 
                 // Users should be either a maintainer or a member, but not both
-                for maintainer in &team.maintainers {
-                    if team.members.contains(maintainer) {
+                for maintainer in team.maintainers.as_ref().unwrap_or(&vec![]) {
+                    if team.members.as_ref().unwrap_or(&vec![]).contains(maintainer) {
                         merr.push(format_err!(
                             "team[{id}]: {maintainer} must be either a maintainer or a member, but not both"
                         ));
@@ -129,8 +185,9 @@ pub(crate) mod sheriff {
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub(crate) struct Team {
         pub name: String,
-        pub maintainers: Vec<UserName>,
-        pub members: Vec<UserName>,
+        pub maintainers: Option<Vec<UserName>>,
+        pub members: Option<Vec<UserName>>,
+        pub formation: Option<Vec<TeamName>>,
     }
 }
 
