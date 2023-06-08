@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "chart.resourceNamePrefix" . }}clowarden
+  name: {{ include "chart.resourceNamePrefix" . }}server
   labels:
-    app.kubernetes.io/component: clowarden
+    app.kubernetes.io/component: server
     {{- include "chart.labels" . | nindent 4 }}
   {{- with .Values.server.ingress.annotations }}
   annotations:
@@ -13,7 +13,7 @@ metadata:
 spec:
   defaultBackend:
     service:
-      name: {{ include "chart.resourceNamePrefix" . }}clowarden
+      name: {{ include "chart.resourceNamePrefix" . }}server
       port:
         number: {{ .Values.server.service.port }}
   {{- with .Values.server.ingress.rules }}

@@ -94,7 +94,7 @@ jobs:
           docker build -f database/migrations/Dockerfile -t $ECR_REGISTRY/clowarden-dbmigrator:$GITHUB_SHA .
           docker push $ECR_REGISTRY/clowarden-dbmigrator:$GITHUB_SHA
 
-  build-clowarden-image:
+  build-clowarden-server-image:
     if: github.ref == 'refs/heads/main'
     needs:
       - linter-backend
@@ -112,9 +112,9 @@ jobs:
       - name: Login to AWS ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-      - name: Build and push clowarden image
+      - name: Build and push clowarden server image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/clowarden:$GITHUB_SHA .
-          docker push $ECR_REGISTRY/clowarden:$GITHUB_SHA
+          docker build -f clowarden-server/Dockerfile -t $ECR_REGISTRY/clowarden-server:$GITHUB_SHA .
+          docker push $ECR_REGISTRY/clowarden-server:$GITHUB_SHA
