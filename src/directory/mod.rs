@@ -192,8 +192,8 @@ impl From<legacy::Cfg> for Directory {
             .into_iter()
             .map(|t| Team {
                 name: t.name,
-                maintainers: t.maintainers,
-                members: t.members,
+                maintainers: t.maintainers.unwrap_or_default(),
+                members: t.members.unwrap_or_default(),
                 ..Default::default()
             })
             .collect();
