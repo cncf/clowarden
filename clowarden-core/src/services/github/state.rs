@@ -112,7 +112,7 @@ impl State {
                 directory,
                 repositories,
             };
-            state.validate().await?;
+            state.validate(svc).await?;
 
             return Ok(state);
         }
@@ -240,7 +240,7 @@ impl State {
     }
 
     /// Validate state.
-    async fn validate(&self) -> Result<()> {
+    async fn validate(&self, svc: DynSvc) -> Result<()> {
         let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
 
         // Helper closure to get the highest role from a team membership for a
@@ -265,6 +265,19 @@ impl State {
             }
             highest_team_role
         };
+
+        // Check teams' maintainers are members of the organization
+        let org_members: Vec<UserName> = svc.list_org_members().await?.into_iter().map(|m| m.login).collect();
+        for team in &self.directory.teams {
+            for user_name in &team.maintainers {
+                if !org_members.contains(user_name) {
+                    merr.push(format_err!(
+                        "team[{}]: {user_name} must be an organization member to be a maintainer",
+                        team.name
+                    ));
+                }
+            }
+        }
 
         for (i, repo) in self.repositories.iter().enumerate() {
             // Define id to be used in subsequent error messages. When
