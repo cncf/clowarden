@@ -7,7 +7,10 @@ use crate::{
 };
 use anyhow::{format_err, Context, Result};
 use config::Config;
-use futures::stream::{self, StreamExt};
+use futures::{
+    future,
+    stream::{self, StreamExt},
+};
 use octorust::types::{
     OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
     TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
@@ -43,9 +46,26 @@ impl State {
         ref_: Option<&str>,
     ) -> Result<State> {
         if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
+            // We need to get some information from the service's actual state
+            // to deal with some service's particularities.
             let org_admins: Vec<UserName> =
                 svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
+            let repositories_in_service = svc.list_repositories().await?;
 
+            // Helper function to check if a repository has been archived. We
+            // cannot add or remove collaborators or teams to an archived repo,
+            // so we will just ignore them and no changes will be applied to
+            // them while they stay archived.
+            let is_repository_archived = |repo_name: &RepositoryName| {
+                for repo in repositories_in_service.iter() {
+                    if &repo.name == repo_name {
+                        return repo.archived;
+                    }
+                }
+                false
+            };
+
+            // Prepare directory
             let mut directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
 
             // Team's members that are org admins are considered maintainers by
@@ -61,11 +81,13 @@ impl State {
                 team.members.retain(|user_name| !org_admins_members.contains(user_name));
             }
 
+            // Prepare repositories
             let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
                 .await
                 .context("invalid github service configuration")?
                 .repositories
                 .into_iter()
+                .filter(|r| !is_repository_archived(&r.name))
                 .map(|mut r| {
                     // Set default visibility when none is provided
                     if r.visibility.is_none() {
@@ -144,6 +166,7 @@ impl State {
         // Repositories
         let org_admins: Vec<UserName> = svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
         for repo in stream::iter(svc.list_repositories().await?)
+            .filter(|repo| future::ready(!repo.archived))
             .map(|repo| async {
                 // Get collaborators (including pending invitations and excluding org admins)
                 let mut collaborators: HashMap<UserName, Role> = svc
