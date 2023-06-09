@@ -1,9 +1,7 @@
-use crate::{
-    jobs::ReconcileInput,
-    services::{ChangesApplied, ServiceName},
-};
+use crate::jobs::ReconcileInput;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
+use clowarden_core::services::{ChangesApplied, ServiceName};
 use deadpool_postgres::Pool;
 #[cfg(test)]
 use mockall::automock;

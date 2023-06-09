@@ -11,9 +11,9 @@ anyhow = { workspace = true }
 askama = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
-base64 = { workspace = true }
 cached = { workspace = true }
 clap = { workspace = true }
+clowarden-core = { path = "../clowarden-core" }
 config = { workspace = true }
 deadpool-postgres = { workspace = true }
 futures = { workspace = true }

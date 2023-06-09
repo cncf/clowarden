@@ -24,7 +24,7 @@ use tokio::time::{sleep, Duration};
 /// Trait that defines some operations a Svc implementation must support.
 #[async_trait]
 #[cfg_attr(test, automock)]
-pub(crate) trait Svc {
+pub trait Svc {
     /// Add repository to organization.
     async fn add_repository(&self, repo: &Repository) -> Result<(), ClientError>;
 
@@ -171,17 +171,28 @@ pub(crate) trait Svc {
 }
 
 /// Type alias to represent a Svc trait object.
-pub(crate) type DynSvc = Arc<dyn Svc + Send + Sync>;
+pub type DynSvc = Arc<dyn Svc + Send + Sync>;
 
 /// Svc implementation backed by the GitHub API.
-pub(crate) struct SvcApi {
+pub struct SvcApi {
     client: Client,
     org: String,
 }
 
 impl SvcApi {
     /// Create a new SvcApi instance.
-    pub(crate) fn new(cfg: Arc<Config>) -> Result<Self, Error> {
+    pub fn new(org: String, token: String) -> Result<Self, Error> {
+        // Setup GitHub API client
+        let client = Client::new(
+            format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+            Credentials::Token(token),
+        )?;
+
+        Ok(Self { client, org })
+    }
+
+    /// Create a new SvcApi instance from the configuration instance provided.
+    pub fn new_from_config(cfg: Arc<Config>) -> Result<Self, Error> {
         // Setup GitHub app credentials
         let app_id = cfg.get_int("server.githubApp.appId").unwrap();
         let app_private_key =

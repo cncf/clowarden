@@ -1,6 +1,6 @@
-use crate::services::{ChangesApplied, ChangesSummary, ServiceName};
 use anyhow::Error;
 use askama::Template;
+use clowarden_core::services::{ChangesApplied, ChangesSummary, ServiceName};
 use std::collections::HashMap;
 
 /// Template for the reconciliation completed comment.
@@ -111,43 +111,14 @@ impl<'a> ValidationSucceeded<'a> {
 }
 
 mod filters {
-    use crate::multierror::MultiError;
-    use anyhow::{Error, Result};
-    use std::fmt::Write;
+    use anyhow::Error;
+    use clowarden_core::multierror;
 
     /// Template filter that formats the error provided.
     pub(crate) fn format_error(err: &Error) -> askama::Result<String> {
-        // Helper function that formats the error provided recursively.
-        fn format_error(err: &Error, depth: usize, s: &mut String) -> Result<()> {
-            match err.downcast_ref::<MultiError>() {
-                Some(merr) => {
-                    let mut next_depth = depth;
-                    if let Some(context) = &merr.context {
-                        write!(s, "\n{}- {context}", "\t".repeat(depth))?;
-                        next_depth += 1;
-                    }
-                    for err in &merr.errors() {
-                        format_error(err, next_depth, s)?;
-                    }
-                }
-                None => {
-                    write!(s, "\n{}- {err}", "\t".repeat(depth))?;
-                    if err.chain().skip(1).count() > 0 {
-                        let mut depth = depth;
-                        for cause in err.chain().skip(1) {
-                            depth += 1;
-                            write!(s, "\n{}- {cause}", "\t".repeat(depth))?;
-                        }
-                    }
-                }
-            };
-            Ok(())
+        match multierror::format_error(err) {
+            Ok(s) => Ok(s),
+            Err(err) => Err(askama::Error::Custom(err.into())),
         }
-
-        let mut s = String::new();
-        if let Err(err) = format_error(err, 0, &mut s) {
-            return Err(askama::Error::Custom(err.into()));
-        }
-        Ok(s)
     }
 }
