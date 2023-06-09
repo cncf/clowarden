@@ -542,6 +542,7 @@ impl From<Option<TeamPermissions>> for Role {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
+    Internal,
     Private,
     #[default]
     Public,
@@ -550,6 +551,7 @@ pub enum Visibility {
 impl fmt::Display for Visibility {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Visibility::Internal => write!(f, "internal"),
             Visibility::Private => write!(f, "private"),
             Visibility::Public => write!(f, "public"),
         }
@@ -559,6 +561,7 @@ impl fmt::Display for Visibility {
 impl From<String> for Visibility {
     fn from(value: String) -> Self {
         match value.as_str() {
+            "internal" => Visibility::Internal,
             "private" => Visibility::Private,
             "public" => Visibility::Public,
             _ => Visibility::default(),
