@@ -221,6 +221,7 @@ impl Svc for SvcApi {
     async fn add_repository(&self, repo: &Repository) -> Result<(), ClientError> {
         // Create repository
         let visibility = match repo.visibility {
+            Some(Visibility::Internal) => Some(ReposCreateInOrgRequestVisibility::Internal),
             Some(Visibility::Private) => Some(ReposCreateInOrgRequestVisibility::Private),
             Some(Visibility::Public) => Some(ReposCreateInOrgRequestVisibility::Public),
             None => None,
@@ -580,6 +581,7 @@ impl Svc for SvcApi {
         visibility: &Visibility,
     ) -> Result<(), ClientError> {
         let visibility = match visibility {
+            Visibility::Internal => Some(ReposCreateInOrgRequestVisibility::Internal),
             Visibility::Private => Some(ReposCreateInOrgRequestVisibility::Private),
             Visibility::Public => Some(ReposCreateInOrgRequestVisibility::Public),
         };
