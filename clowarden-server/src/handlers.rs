@@ -271,10 +271,11 @@ async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent
 
     // Check if any of the configuration files is on the pr
     if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
-        let legacy_cfg_files = &[
-            cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap(),
-            cfg.get_string("server.config.legacy.cncf.peoplePath").unwrap(),
-        ];
+        let mut legacy_cfg_files =
+            vec![cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap()];
+        if let Ok(people_path) = cfg.get_string("server.config.legacy.cncf.peoplePath") {
+            legacy_cfg_files.push(people_path);
+        };
         for filename in gh.list_pr_files(event.pull_request.number).await? {
             if legacy_cfg_files.contains(&filename) {
                 return Ok(true);

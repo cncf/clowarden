@@ -76,7 +76,7 @@ server:
       sheriff:
         permissionsPath: config.yaml
       cncf:
-        peoplePath: people.json
+        peoplePath: null
     services:
       github:
         enabled: true

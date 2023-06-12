@@ -129,7 +129,6 @@ fn validate_config(cfg: &Config) -> Result<()> {
     // Required fields when legacy config is used
     if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
         cfg.get_string("server.config.legacy.sheriff.permissionsPath")?;
-        cfg.get_string("server.config.legacy.cncf.peoplePath")?;
     }
 
     Ok(())
