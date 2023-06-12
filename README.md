@@ -6,7 +6,7 @@
 
 The CNCF has recently begun to use [Sheriff](https://github.com/cncf/sheriff) to manage people-related resources. CLOWarden is an *experiment* to replace Sheriff with a system that suits better the needs of the CNCF.
 
-To facilitate experimentation and make a potential transition easier, CLOWarden supports a legacy configuration mode that allows using a subset of the [Sheriff's permissions configuration file](https://github.com/electron/sheriff#permissions-file) and the [CNCF's people file](https://github.com/cncf/people/blob/main/people.json) to define resources like users, teams and GitHub repositories (the same files currently used by CNCF at <https://github.com/cncf/people>).
+To facilitate experimentation and make a potential transition easier, CLOWarden supports a legacy configuration mode that allows using [a subset of the Sheriff's permissions configuration file](#configuration) and the [CNCF's people file](https://github.com/cncf/people/blob/main/people.json) to define resources like users, teams and GitHub repositories (the same files currently used by CNCF at <https://github.com/cncf/people>).
 
 ## How it works
 
@@ -115,6 +115,76 @@ Operations supported:
 - Remove collaborators from repositories
 - Update collaborators' role in repository
 - Update repository visibility
+
+## Configuration
+
+CLOWarden supports a legacy configuration mode that allows using a subset of the Sheriff's permissions configuration file.
+
+```yaml
+teams:
+  - name: <github_team_slug>
+    # Team maintainers
+    #
+    #   - Values must be valid GitHub usernames (case sensitive)
+    #   - At least one team maintainer must be specified
+    #   - Maintainers must already be members of the organization
+    #   - Can be omitted if at least one maintainer is defined via formation
+    maintainers:
+      - <github_username>
+      - <github_username>
+
+    # Team members
+    #
+    #   - Values must be valid GitHub usernames (case sensitive)
+    members:
+      - <github_username>
+      - <github_username>
+
+    # Formation allows populating teams' maintainers and members from the
+    # content of other teams
+    #
+    #  - Each value must be a valid GitHub team slug
+    #  - Formation is not recursive
+    #  - This field can be used in combination with maintainers and members
+    formation:
+      - <github_team_slug>
+      - <github_team_slug>
+
+repositories:
+  - name: <github_repository_name>
+    # Teams with access to the repository
+    #
+    #   - Key: GitHub team slug
+    #   - Value: access level
+    #   - Value options: read | triage | write | maintain | admin
+    teams:
+      <github_team_slug>: maintain
+      <github_team_slug>: write
+
+    # External collaborators with access to the repository
+    #
+    #   - Key: GitHub username (case sensitive)
+    #   - Value: access level
+    #   - Value options: read | triage | write | maintain | admin
+    external_collaborators:
+      <github_username>: write
+      <github_username>: read
+
+    # Repository visibility
+    #
+    #   - Value options: public | private | internal
+    #   - Default: public
+    visibility: public
+```
+
+It's important to keep in mind that..
+
+- GitHub usernames are case sensitive
+- Repositories and team names must contain only lowercase letters, numbers or hyphens (in the case of teams, the GitHub team slug must be used)
+- Teams maintainers must belong to the organization before being added to the teams
+- Teams maintainers and members fields can be omitted when the field formation is defined and one of the subteams has at least one maintainer
+- It is possible to use the formation field in teams and at the same time explicitly define some team maintainers and members
+- Teams formation is not recursive. If a subteam is also using formation, its subteams will be ignored
 
 ## Using CLOWarden in your organization
 
