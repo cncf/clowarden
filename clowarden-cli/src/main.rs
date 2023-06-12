@@ -55,8 +55,8 @@ struct BaseArgs {
     permissions_file: String,
 
     /// People file.
-    #[arg(long, default_value = "people.json")]
-    people_file: String,
+    #[arg(long)]
+    people_file: Option<String>,
 }
 
 /// Environment variable containing Github token.
@@ -134,12 +134,12 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
 /// Helper function to setup some services from the arguments provided.
 fn setup_services(args: &BaseArgs, github_token: String) -> Result<(Arc<Config>, Arc<GHApi>, Arc<SvcApi>)> {
     let cfg = Config::builder()
-        .set_default("server.config.legacy.enabled", true)?
-        .set_default(
+        .set_override("server.config.legacy.enabled", true)?
+        .set_override(
             "server.config.legacy.sheriff.permissionsPath",
             args.permissions_file.clone(),
         )?
-        .set_default("server.config.legacy.cncf.peoplePath", args.people_file.clone())?
+        .set_override_option("server.config.legacy.cncf.peoplePath", args.people_file.clone())?
         .build()?;
     let gh = GHApi::new(
         args.org.clone(),

@@ -27,7 +27,7 @@ impl Cfg {
 
         // Get CNCF people configuration
         let cncf = match cncf::Cfg::get(cfg, gh, ref_).await {
-            Ok(cfg) => Some(cfg),
+            Ok(cfg) => cfg,
             Err(err) => {
                 merr.push(err);
                 None
@@ -208,14 +208,19 @@ pub(crate) mod cncf {
 
     impl Cfg {
         /// Get CNCF people configuration.
-        pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
-            let path = &cfg.get_string("server.config.legacy.cncf.peoplePath").unwrap();
-            let content = gh.get_file_content(path, ref_).await.context("error getting cncf people file")?;
-            let cfg: Cfg = serde_json::from_str(&content)
-                .map_err(Error::new)
-                .context("error parsing cncf people file")?;
-            cfg.validate()?;
-            Ok(cfg)
+        pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Option<Self>> {
+            match &cfg.get_string("server.config.legacy.cncf.peoplePath") {
+                Ok(path) => {
+                    let content =
+                        gh.get_file_content(path, ref_).await.context("error getting cncf people file")?;
+                    let cfg: Cfg = serde_json::from_str(&content)
+                        .map_err(Error::new)
+                        .context("error parsing cncf people file")?;
+                    cfg.validate()?;
+                    Ok(Some(cfg))
+                }
+                Err(_) => Ok(None),
+            }
         }
 
         /// Validate configuration.
