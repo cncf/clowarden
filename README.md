@@ -1,6 +1,6 @@
 # CLOWarden
 
-[![CI](https://github.com/tegioz/clowarden/actions/workflows/ci.yml/badge.svg)](https://github.com/tegioz/clowarden/actions/workflows/ci.yml)
+[![CI](https://github.com/cncf/clowarden/actions/workflows/ci.yml/badge.svg)](https://github.com/cncf/clowarden/actions/workflows/ci.yml)
 
 **CLOWarden** is a tool that automatically manages organizations users, teams and other resources across multiple services.
 
@@ -185,6 +185,7 @@ It's important to keep in mind that..
 - Teams maintainers and members fields can be omitted when the field formation is defined and one of the subteams has at least one maintainer
 - It is possible to use the formation field in teams and at the same time explicitly define some team maintainers and members
 - Teams formation is not recursive. If a subteam is also using formation, its subteams will be ignored
+- GitHub repositories permissions granted using teams won't be effective until the team member has accepted the invitation to the organization
 
 ## Using CLOWarden in your organization
 
