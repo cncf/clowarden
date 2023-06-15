@@ -13,11 +13,17 @@ pub(crate) struct Cfg {
 
 impl Cfg {
     /// Get legacy configuration.
-    pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Cfg> {
+    pub(crate) async fn get(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        owner: Option<&str>,
+        repo: Option<&str>,
+        ref_: Option<&str>,
+    ) -> Result<Cfg> {
         let mut merr = MultiError::new(Some("invalid directory configuration".to_string()));
 
         // Get sheriff configuration
-        let sheriff = match sheriff::Cfg::get(cfg.clone(), gh.clone(), ref_).await {
+        let sheriff = match sheriff::Cfg::get(cfg.clone(), gh.clone(), owner, repo, ref_).await {
             Ok(cfg) => Some(cfg),
             Err(err) => {
                 merr.push(err);
@@ -26,7 +32,7 @@ impl Cfg {
         };
 
         // Get CNCF people configuration
-        let cncf = match cncf::Cfg::get(cfg, gh, ref_).await {
+        let cncf = match cncf::Cfg::get(cfg, gh, owner, repo, ref_).await {
             Ok(cfg) => cfg,
             Err(err) => {
                 merr.push(err);
@@ -64,14 +70,22 @@ pub(crate) mod sheriff {
 
     impl Cfg {
         /// Get sheriff configuration.
-        pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+        pub(crate) async fn get(
+            cfg: Arc<Config>,
+            gh: DynGH,
+            owner: Option<&str>,
+            repo: Option<&str>,
+            ref_: Option<&str>,
+        ) -> Result<Self> {
             // Fetch configuration file and parse it
             let path = &cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap();
-            let content =
-                gh.get_file_content(path, ref_).await.context("error getting sheriff permissions file")?;
+            let content = gh
+                .get_file_content(path, owner, repo, ref_)
+                .await
+                .context("error getting permissions file")?;
             let mut cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
-                .context("error parsing sheriff permissions file")?;
+                .context("error parsing permissions file")?;
 
             // Process and validate configuration
             cfg.process_composite_teams();
@@ -208,11 +222,19 @@ pub(crate) mod cncf {
 
     impl Cfg {
         /// Get CNCF people configuration.
-        pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Option<Self>> {
+        pub(crate) async fn get(
+            cfg: Arc<Config>,
+            gh: DynGH,
+            owner: Option<&str>,
+            repo: Option<&str>,
+            ref_: Option<&str>,
+        ) -> Result<Option<Self>> {
             match &cfg.get_string("server.config.legacy.cncf.peoplePath") {
                 Ok(path) => {
-                    let content =
-                        gh.get_file_content(path, ref_).await.context("error getting cncf people file")?;
+                    let content = gh
+                        .get_file_content(path, owner, repo, ref_)
+                        .await
+                        .context("error getting cncf people file")?;
                     let cfg: Cfg = serde_json::from_str(&content)
                         .map_err(Error::new)
                         .context("error parsing cncf people file")?;

@@ -14,13 +14,21 @@ pub(crate) mod sheriff {
 
     impl Cfg {
         /// Get sheriff configuration.
-        pub(crate) async fn get(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+        pub(crate) async fn get(
+            cfg: Arc<Config>,
+            gh: DynGH,
+            owner: Option<&str>,
+            repo: Option<&str>,
+            ref_: Option<&str>,
+        ) -> Result<Self> {
             let path = &cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap();
-            let content =
-                gh.get_file_content(path, ref_).await.context("error getting sheriff permissions file")?;
+            let content = gh
+                .get_file_content(path, owner, repo, ref_)
+                .await
+                .context("error getting sheriff permissions file")?;
             let cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
-                .context("error parsing sheriff permissions file")?;
+                .context("error parsing permissions file")?;
             cfg.validate()?;
             Ok(cfg)
         }

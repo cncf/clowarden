@@ -12,7 +12,12 @@ pub type ServiceName = &'static str;
 pub trait ServiceHandler {
     /// Return a summary of the changes detected in the service's state as
     /// defined in the configuration from the base to the head reference.
-    async fn get_changes_summary(&self, head_ref: &str) -> Result<ChangesSummary>;
+    async fn get_changes_summary(
+        &self,
+        head_owner: Option<&str>,
+        head_repo: Option<&str>,
+        head_ref: &str,
+    ) -> Result<ChangesSummary>;
 
     /// Apply the changes needed so that the actual state (as defined in the
     /// service) matches the desired state (as defined in the configuration).
