@@ -15,7 +15,13 @@ use std::sync::Arc;
 #[cfg_attr(test, automock)]
 pub trait GH {
     /// Get file content.
-    async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String>;
+    async fn get_file_content(
+        &self,
+        path: &str,
+        owner: Option<&str>,
+        repo: Option<&str>,
+        ref_: Option<&str>,
+    ) -> Result<String>;
 }
 
 /// Type alias to represent a GH trait object.
@@ -75,12 +81,20 @@ impl GHApi {
 #[async_trait]
 impl GH for GHApi {
     /// [GH::get_file_content]
-    async fn get_file_content(&self, path: &str, ref_: Option<&str>) -> Result<String> {
+    async fn get_file_content(
+        &self,
+        path: &str,
+        owner: Option<&str>,
+        repo: Option<&str>,
+        ref_: Option<&str>,
+    ) -> Result<String> {
         let ref_ = ref_.unwrap_or(&self.branch);
+        let owner = owner.unwrap_or(&self.org);
+        let repo = repo.unwrap_or(&self.repo);
         let mut content = self
             .client
             .repos()
-            .get_content_file(&self.org, &self.repo, path, ref_)
+            .get_content_file(owner, repo, path, ref_)
             .await?
             .content
             .as_bytes()

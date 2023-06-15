@@ -74,6 +74,8 @@ impl From<PullRequestData> for ReconcileInput {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ValidateInput {
     pub pr_number: i64,
+    pub pr_head_owner: Option<String>,
+    pub pr_head_repo: Option<String>,
     pub pr_head_ref: String,
     pub pr_head_sha: String,
 }
@@ -82,6 +84,8 @@ impl From<PullRequestData> for ValidateInput {
     fn from(pr: PullRequestData) -> Self {
         ValidateInput {
             pr_number: pr.number,
+            pr_head_owner: pr.head.repo.as_ref().map(|r| r.owner.clone().login),
+            pr_head_repo: pr.head.repo.map(|r| r.name),
             pr_head_ref: pr.head.ref_,
             pr_head_sha: pr.head.sha,
         }
@@ -210,6 +214,8 @@ impl Handler {
         let directory_changes = match Directory::get_changes_summary(
             self.cfg.clone(),
             self.ghc.clone(),
+            input.pr_head_owner.as_deref(),
+            input.pr_head_repo.as_deref(),
             &input.pr_head_ref,
         )
         .await
@@ -228,7 +234,14 @@ impl Handler {
         let mut services_changes: HashMap<ServiceName, ChangesSummary> = HashMap::new();
         if !merr.contains_errors() {
             for (service_name, service_handler) in &self.services {
-                match service_handler.get_changes_summary(&input.pr_head_ref).await {
+                match service_handler
+                    .get_changes_summary(
+                        input.pr_head_owner.as_deref(),
+                        input.pr_head_repo.as_deref(),
+                        &input.pr_head_ref,
+                    )
+                    .await
+                {
                     Ok(changes) => {
                         services_changes.insert(service_name, changes);
                     }

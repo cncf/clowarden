@@ -43,6 +43,8 @@ impl State {
         cfg: Arc<Config>,
         gh: DynGH,
         svc: DynSvc,
+        owner: Option<&str>,
+        repo: Option<&str>,
         ref_: Option<&str>,
     ) -> Result<State> {
         if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
@@ -66,7 +68,8 @@ impl State {
             };
 
             // Prepare directory
-            let mut directory = Directory::new_from_config(cfg.clone(), gh.clone(), ref_).await?;
+            let mut directory =
+                Directory::new_from_config(cfg.clone(), gh.clone(), owner, repo, ref_).await?;
 
             // Team's members that are org admins are considered maintainers by
             // GitHub, so we do the same with the members defined in the config
@@ -82,7 +85,7 @@ impl State {
             }
 
             // Prepare repositories
-            let repositories = legacy::sheriff::Cfg::get(cfg, gh, ref_)
+            let repositories = legacy::sheriff::Cfg::get(cfg, gh, owner, repo, ref_)
                 .await
                 .context("invalid github service configuration")?
                 .repositories

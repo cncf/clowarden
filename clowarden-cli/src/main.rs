@@ -94,7 +94,7 @@ async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
     // Validate configuration and display results
     println!("Validating configuration...");
     let (cfg, gh, svc) = setup_services(&args, github_token)?;
-    match github::State::new_from_config(cfg, gh, svc, None).await {
+    match github::State::new_from_config(cfg, gh, svc, None, None, None).await {
         Ok(_) => println!("Configuration is valid!"),
         Err(err) => {
             println!("{}\n", multierror::format_error(&err)?);
@@ -113,7 +113,7 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
     println!("Calculating diff between the actual state and the desired state...");
     let (cfg, gh, svc) = setup_services(&args, github_token)?;
     let actual_state = State::new_from_service(svc.clone()).await?;
-    let desired_state = State::new_from_config(cfg, gh, svc, None).await?;
+    let desired_state = State::new_from_config(cfg, gh, svc, None, None, None).await?;
     let changes = actual_state.diff(&desired_state);
 
     // Display changes

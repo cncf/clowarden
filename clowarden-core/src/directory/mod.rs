@@ -40,10 +40,17 @@ pub struct Directory {
 impl Directory {
     /// Create a new directory instance from the configuration reference
     /// provided (or from the base reference when none is provided).
-    pub async fn new_from_config(cfg: Arc<Config>, gh: DynGH, ref_: Option<&str>) -> Result<Self> {
+    pub async fn new_from_config(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        owner: Option<&str>,
+        repo: Option<&str>,
+        ref_: Option<&str>,
+    ) -> Result<Self> {
         if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
-            let legacy_cfg =
-                legacy::Cfg::get(cfg, gh, ref_).await.context("invalid directory configuration")?;
+            let legacy_cfg = legacy::Cfg::get(cfg, gh, owner, repo, ref_)
+                .await
+                .context("invalid directory configuration")?;
             return Ok(Self::from(legacy_cfg));
         }
         Err(format_err!(
@@ -142,19 +149,28 @@ impl Directory {
 
     /// Return a summary of the changes detected in the directory from the base
     /// to the head reference.
-    pub async fn get_changes_summary(cfg: Arc<Config>, gh: DynGH, head_ref: &str) -> Result<ChangesSummary> {
-        let directory_head = Directory::new_from_config(cfg.clone(), gh.clone(), Some(head_ref)).await?;
-        let (changes, base_ref_config_status) = match Directory::new_from_config(cfg, gh, None).await {
-            Ok(directory_base) => {
-                let changes = directory_base
-                    .diff(&directory_head)
-                    .into_iter()
-                    .map(|change| Box::new(change) as DynChange)
-                    .collect();
-                (changes, BaseRefConfigStatus::Valid)
-            }
-            Err(_) => (vec![], BaseRefConfigStatus::Invalid),
-        };
+    pub async fn get_changes_summary(
+        cfg: Arc<Config>,
+        gh: DynGH,
+        head_owner: Option<&str>,
+        head_repo: Option<&str>,
+        head_ref: &str,
+    ) -> Result<ChangesSummary> {
+        let directory_head =
+            Directory::new_from_config(cfg.clone(), gh.clone(), head_owner, head_repo, Some(head_ref))
+                .await?;
+        let (changes, base_ref_config_status) =
+            match Directory::new_from_config(cfg, gh, None, None, None).await {
+                Ok(directory_base) => {
+                    let changes = directory_base
+                        .diff(&directory_head)
+                        .into_iter()
+                        .map(|change| Box::new(change) as DynChange)
+                        .collect();
+                    (changes, BaseRefConfigStatus::Valid)
+                }
+                Err(_) => (vec![], BaseRefConfigStatus::Invalid),
+            };
 
         Ok(ChangesSummary {
             changes,
