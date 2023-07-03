@@ -194,7 +194,7 @@ It's important to keep in mind that..
 
 ## Using CLOWarden in your organization
 
-Although has been deployed for use in the CNCF GiHub org, CLOWarden is still in an experimental phase and breaking changes are expected, so we do not recommend its use in other production enviroments yet. Once it stabilizes, we'll publish some additional documentation to make it easier to run your own CLOWarden instance.
+Although has been deployed for use in the CNCF GitHub org, CLOWarden is still in an experimental phase and breaking changes are expected, so we do not recommend its use in other production enviroments yet. Once it stabilizes, we'll publish some additional documentation to make it easier to run your own CLOWarden instance.
 
 ## Contributing
 
