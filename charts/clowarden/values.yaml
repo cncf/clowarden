@@ -59,27 +59,10 @@ server:
   githubApp:
     # GitHub application ID
     appId: null
-    # GitHub application installation ID
-    installationId: null
     # GitHub application private key path
     privateKey: null
     # GitHub application webhook secret
     webhookSecret: null
-
-  # CLOWarden service configuration
-  config:
-    organization: null
-    repository: null
-    branch: main
-    legacy:
-      enabled: true
-      sheriff:
-        permissionsPath: config.yaml
-      cncf:
-        peoplePath: null
-    services:
-      github:
-        enabled: true
 
   # Ingress configuration
   ingress:
@@ -100,6 +83,29 @@ server:
     image:
       repository: clowarden-server
     resources: {}
+
+# Services CLOWarden will manage
+services:
+  github:
+    enabled: true
+
+# Organizations managed by this CLOWarden instance
+organizations:
+  []
+  # - # Name of the GitHub organization
+  #   name: org-name
+  #   # CLOWarden's GitHub application installation id
+  #   installationId: 12345678
+  #   # Repository where the configuration files are located
+  #   repository: .clowarden
+  #   # Branch to use in the configuration repository
+  #   branch: main
+  #   # Legacy mode configuration
+  #   legacy:
+  #     # Whether legacy mode is enabled or not
+  #     enabled: true
+  #     # Path of the Sheriff's permissions file
+  #     sheriffPermissionsPath: config.yaml
 
 # PostgreSQL configuration
 postgresql:

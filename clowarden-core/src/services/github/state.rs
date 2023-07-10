@@ -1,12 +1,19 @@
-use super::{legacy, service::DynSvc};
+//! This module defines the types used to represent the state of the GitHub
+//! service, as well as the functionality to create new instances from the
+//! configuration or the service, and validating and comparing them.
+
+use super::{
+    legacy,
+    service::{Ctx, DynSvc},
+};
 use crate::{
+    cfg::Legacy,
     directory::{Directory, DirectoryChange, Team, TeamName, UserName},
-    github::DynGH,
+    github::{DynGH, Source},
     multierror::MultiError,
     services::{Change, ChangeDetails},
 };
 use anyhow::{format_err, Context, Result};
-use config::Config;
 use futures::{
     future,
     stream::{self, StreamExt},
@@ -20,7 +27,6 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
-    sync::Arc,
 };
 
 /// Type alias to represent a repository name.
@@ -37,29 +43,27 @@ pub struct State {
 }
 
 impl State {
-    /// Create a new State instance from the configuration reference provided
-    /// (or from the base reference when none is provided).
+    /// Create a new State instance from the configuration reference provided.
     pub async fn new_from_config(
-        cfg: Arc<Config>,
         gh: DynGH,
         svc: DynSvc,
-        owner: Option<&str>,
-        repo: Option<&str>,
-        ref_: Option<&str>,
+        legacy: &Legacy,
+        ctx: &Ctx,
+        src: &Source,
     ) -> Result<State> {
-        if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
+        if legacy.enabled {
             // We need to get some information from the service's actual state
             // to deal with some service's particularities.
             let org_admins: Vec<UserName> =
-                svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
-            let repositories_in_service = svc.list_repositories().await?;
+                svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
+            let repositories_in_service = svc.list_repositories(ctx).await?;
 
             // Helper function to check if a repository has been archived. We
             // cannot add or remove collaborators or teams to an archived repo,
             // so we will just ignore them and no changes will be applied to
             // them while they stay archived.
             let is_repository_archived = |repo_name: &RepositoryName| {
-                for repo in repositories_in_service.iter() {
+                for repo in &repositories_in_service {
                     if &repo.name == repo_name {
                         return repo.archived;
                     }
@@ -68,24 +72,23 @@ impl State {
             };
 
             // Prepare directory
-            let mut directory =
-                Directory::new_from_config(cfg.clone(), gh.clone(), owner, repo, ref_).await?;
+            let mut directory = Directory::new_from_config(gh.clone(), legacy, src).await?;
 
             // Team's members that are org admins are considered maintainers by
             // GitHub, so we do the same with the members defined in the config
-            for team in directory.teams.iter_mut() {
+            for team in &mut directory.teams {
                 let mut org_admins_members = vec![];
-                for user_name in team.members.clone().iter() {
+                for user_name in &team.members.clone() {
                     if org_admins.contains(user_name) {
-                        org_admins_members.push(user_name.to_owned());
-                        team.maintainers.push(user_name.to_owned());
+                        org_admins_members.push(user_name.clone());
+                        team.maintainers.push(user_name.clone());
                     }
                 }
                 team.members.retain(|user_name| !org_admins_members.contains(user_name));
             }
 
             // Prepare repositories
-            let repositories = legacy::sheriff::Cfg::get(cfg, gh, owner, repo, ref_)
+            let repositories = legacy::sheriff::Cfg::get(gh, src, &legacy.sheriff_permissions_path)
                 .await
                 .context("invalid github service configuration")?
                 .repositories
@@ -115,7 +118,7 @@ impl State {
                 directory,
                 repositories,
             };
-            state.validate(svc).await?;
+            state.validate(svc, ctx).await?;
 
             return Ok(state);
         }
@@ -125,24 +128,24 @@ impl State {
     }
 
     /// Create a new State instance from the service's actual state.
-    pub async fn new_from_service(svc: DynSvc) -> Result<State> {
+    pub async fn new_from_service(svc: DynSvc, ctx: &Ctx) -> Result<State> {
         let mut state = State::default();
 
         // Teams
-        for team in stream::iter(svc.list_teams().await?)
+        for team in stream::iter(svc.list_teams(ctx).await?)
             .map(|team| async {
                 // Get maintainers and members (including pending invitations)
                 let mut maintainers: Vec<UserName> =
-                    svc.list_team_maintainers(&team.slug).await?.into_iter().map(|u| u.login).collect();
+                    svc.list_team_maintainers(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
                 let mut members: Vec<UserName> =
-                    svc.list_team_members(&team.slug).await?.into_iter().map(|u| u.login).collect();
-                for invitation in svc.list_team_invitations(&team.slug).await?.into_iter() {
-                    let membership = svc.get_team_membership(&team.slug, &invitation.login).await?;
+                    svc.list_team_members(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
+                for invitation in svc.list_team_invitations(ctx, &team.slug).await? {
+                    let membership = svc.get_team_membership(ctx, &team.slug, &invitation.login).await?;
                     if membership.state == OrgMembershipState::Pending {
                         match membership.role {
                             TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
                             TeamMembershipRole::Member => members.push(invitation.login),
-                            _ => {}
+                            TeamMembershipRole::FallthroughString => {}
                         }
                     }
                 }
@@ -167,19 +170,20 @@ impl State {
         }
 
         // Repositories
-        let org_admins: Vec<UserName> = svc.list_org_admins().await?.into_iter().map(|a| a.login).collect();
-        for repo in stream::iter(svc.list_repositories().await?)
+        let org_admins: Vec<UserName> =
+            svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
+        for repo in stream::iter(svc.list_repositories(ctx).await?)
             .filter(|repo| future::ready(!repo.archived))
             .map(|repo| async {
                 // Get collaborators (including pending invitations and excluding org admins)
                 let mut collaborators: HashMap<UserName, Role> = svc
-                    .list_repository_collaborators(&repo.name)
+                    .list_repository_collaborators(ctx, &repo.name)
                     .await?
                     .into_iter()
                     .filter(|c| !org_admins.contains(&c.login))
                     .map(|c| (c.login, c.permissions.into()))
                     .collect();
-                for invitation in svc.list_repository_invitations(&repo.name).await?.into_iter() {
+                for invitation in svc.list_repository_invitations(ctx, &repo.name).await? {
                     if let Some(invitee) = invitation.invitee {
                         collaborators.insert(invitee.login, invitation.permissions.into());
                     }
@@ -192,7 +196,7 @@ impl State {
 
                 // Get teams
                 let teams: HashMap<TeamName, Role> = svc
-                    .list_repository_teams(&repo.name)
+                    .list_repository_teams(ctx, &repo.name)
                     .await?
                     .into_iter()
                     .map(|t| (t.name, t.permissions.into()))
@@ -222,6 +226,7 @@ impl State {
 
     /// Returns the changes detected between this state instance and the new
     /// one provided.
+    #[must_use]
     pub fn diff(&self, new: &State) -> Changes {
         Changes {
             directory: self
@@ -243,7 +248,7 @@ impl State {
     }
 
     /// Validate state.
-    async fn validate(&self, svc: DynSvc) -> Result<()> {
+    async fn validate(&self, svc: DynSvc, ctx: &Ctx) -> Result<()> {
         let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
 
         // Helper closure to get the highest role from a team membership for a
@@ -270,7 +275,8 @@ impl State {
         };
 
         // Check teams' maintainers are members of the organization
-        let org_members: Vec<UserName> = svc.list_org_members().await?.into_iter().map(|m| m.login).collect();
+        let org_members: Vec<UserName> =
+            svc.list_org_members(ctx).await?.into_iter().map(|m| m.login).collect();
         for team in &self.directory.teams {
             for user_name in &team.maintainers {
                 if !org_members.contains(user_name) {
@@ -287,7 +293,7 @@ impl State {
             // available, it'll be the repo name. Otherwise we'll use its
             // index on the list.
             let id = if repo.name.is_empty() {
-                format!("{}", i)
+                format!("{i}")
             } else {
                 repo.name.clone()
             };
@@ -329,6 +335,7 @@ impl State {
     }
 
     /// Returns the changes detected between two lists of repositories.
+    #[allow(clippy::too_many_lines)]
     fn repositories_diff(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
         let mut changes = vec![];
 
@@ -341,7 +348,7 @@ impl State {
                          repo_name: &RepositoryName,
                          team_name: &TeamName| {
             if let Some(teams) = collection[repo_name].teams.as_ref() {
-                return teams.get(&team_name.to_string()).map(|r| r.to_owned()).unwrap_or_default();
+                return teams.get(&team_name.to_string()).cloned().unwrap_or_default();
             }
             Role::default()
         };
@@ -349,7 +356,7 @@ impl State {
                          repo_name: &RepositoryName,
                          user_name: &UserName| {
             if let Some(collaborators) = collection[repo_name].collaborators.as_ref() {
-                return collaborators.get(&user_name.to_string()).map(|r| r.to_owned()).unwrap_or_default();
+                return collaborators.get(&user_name.to_string()).cloned().unwrap_or_default();
             }
             Role::default()
         };
@@ -379,16 +386,16 @@ impl State {
             }
             for team_name in teams_old.difference(&teams_new) {
                 changes.push(RepositoryChange::TeamRemoved(
-                    repo_name.to_string(),
-                    team_name.to_string(),
-                ))
+                    (*repo_name).to_string(),
+                    (*team_name).to_string(),
+                ));
             }
             for team_name in teams_new.difference(&teams_old) {
                 changes.push(RepositoryChange::TeamAdded(
-                    repo_name.to_string(),
-                    team_name.to_string(),
+                    (*repo_name).to_string(),
+                    (*team_name).to_string(),
                     team_role(&repos_new, repo_name, team_name),
-                ))
+                ));
             }
             for team_name in &teams_new {
                 if !teams_old.contains(team_name) {
@@ -399,10 +406,10 @@ impl State {
                 let role_old = team_role(&repos_old, repo_name, team_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::TeamRoleUpdated(
-                        repo_name.to_string(),
-                        team_name.to_string(),
+                        (*repo_name).to_string(),
+                        (*team_name).to_string(),
                         role_new,
-                    ))
+                    ));
                 }
             }
 
@@ -417,16 +424,16 @@ impl State {
             }
             for user_name in collaborators_old.difference(&collaborators_new) {
                 changes.push(RepositoryChange::CollaboratorRemoved(
-                    repo_name.to_string(),
-                    user_name.to_string(),
-                ))
+                    (*repo_name).to_string(),
+                    (*user_name).to_string(),
+                ));
             }
             for user_name in collaborators_new.difference(&collaborators_old) {
                 changes.push(RepositoryChange::CollaboratorAdded(
-                    repo_name.to_string(),
-                    user_name.to_string(),
+                    (*repo_name).to_string(),
+                    (*user_name).to_string(),
                     user_role(&repos_new, repo_name, user_name),
-                ))
+                ));
             }
             for user_name in &collaborators_new {
                 if !collaborators_old.contains(user_name) {
@@ -437,10 +444,10 @@ impl State {
                 let role_old = user_role(&repos_old, repo_name, user_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::CollaboratorRoleUpdated(
-                        repo_name.to_string(),
-                        user_name.to_string(),
+                        (*repo_name).to_string(),
+                        (*user_name).to_string(),
                         role_new,
-                    ))
+                    ));
                 }
             }
 
@@ -450,9 +457,9 @@ impl State {
             if visibility_new != visibility_old {
                 let visibility_new = visibility_new.clone().unwrap_or_default();
                 changes.push(RepositoryChange::VisibilityUpdated(
-                    repo_name.to_string(),
+                    (*repo_name).to_string(),
                     visibility_new,
-                ))
+                ));
             }
         }
 
@@ -507,8 +514,7 @@ impl From<Option<RepositoryPermissions>> for Role {
             Some(p) if p.push => Role::Write,
             Some(p) if p.triage => Role::Triage,
             Some(p) if p.pull => Role::Read,
-            Some(_) => Role::default(),
-            None => Role::default(),
+            Some(_) | None => Role::default(),
         }
     }
 }
@@ -558,8 +564,7 @@ impl From<Option<TeamPermissions>> for Role {
             Some(p) if p.push => Role::Write,
             Some(p) if p.triage => Role::Triage,
             Some(p) if p.pull => Role::Read,
-            Some(_) => Role::default(),
-            None => Role::default(),
+            Some(_) | None => Role::default(),
         }
     }
 }
@@ -734,50 +739,43 @@ impl Change for RepositoryChange {
             RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                 write!(
                     s,
-                    "- team **{}** has been *added* to repository **{}** (role: **{}**)",
-                    team_name, repo_name, role
+                    "- team **{team_name}** has been *added* to repository **{repo_name}** (role: **{role}**)"
                 )?;
             }
             RepositoryChange::TeamRemoved(repo_name, team_name) => {
                 write!(
                     s,
-                    "- team **{}** has been *removed* from repository **{}**",
-                    team_name, repo_name
+                    "- team **{team_name}** has been *removed* from repository **{repo_name}**"
                 )?;
             }
             RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => {
                 write!(
                     s,
-                    "- team **{}** role in repository **{}** has been *updated* to **{}**",
-                    team_name, repo_name, role
+                    "- team **{team_name}** role in repository **{repo_name}** has been *updated* to **{role}**"
                 )?;
             }
             RepositoryChange::CollaboratorAdded(repo_name, user_name, role) => {
                 write!(
                     s,
-                    "- user **{}** is now a collaborator (role: **{}**) of repository **{}**",
-                    user_name, role, repo_name
+                    "- user **{user_name}** is now a collaborator (role: **{role}**) of repository **{repo_name}**"
                 )?;
             }
             RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
                 write!(
                     s,
-                    "- user **{}** is no longer a collaborator of repository **{}**",
-                    user_name, repo_name
+                    "- user **{user_name}** is no longer a collaborator of repository **{repo_name}**"
                 )?;
             }
             RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
                 write!(
                     s,
-                    "- user **{}** role in repository **{}** has been updated to **{}**",
-                    user_name, repo_name, role
+                    "- user **{user_name}** role in repository **{repo_name}** has been updated to **{role}**"
                 )?;
             }
             RepositoryChange::VisibilityUpdated(repo_name, visibility) => {
                 write!(
                     s,
-                    "- repository **{}** visibility has been updated to **{}**",
-                    repo_name, visibility
+                    "- repository **{repo_name}** visibility has been updated to **{visibility}**"
                 )?;
             }
         }

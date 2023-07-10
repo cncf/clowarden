@@ -1,3 +1,6 @@
+//! This module defines the templates used to render the comments that
+//! CLOWarden will post to GitHub.
+
 use anyhow::Error;
 use askama::Template;
 use clowarden_core::services::{ChangesApplied, ChangesSummary, ServiceName};
@@ -19,7 +22,7 @@ impl<'a> ReconciliationCompleted<'a> {
         changes_applied: &'a HashMap<ServiceName, ChangesApplied>,
         errors: &'a HashMap<ServiceName, Error>,
     ) -> Self {
-        let services = changes_applied.keys().chain(errors.keys()).map(|s| s.to_owned()).collect();
+        let services = changes_applied.keys().chain(errors.keys()).copied().collect();
         let some_changes_applied = (|| {
             for service_changes_applied in changes_applied.values() {
                 if !service_changes_applied.is_empty() {

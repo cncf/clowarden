@@ -17,6 +17,9 @@ const getURLSearchParams = (query: BasicQuery): URLSearchParams => {
   if (!isUndefined(query.time_range)) {
     q.set('time_range', query.time_range);
   }
+  if (!isUndefined(query.organization)) {
+    q.set('organization', query.organization);
+  }
   return q;
 };
 

@@ -1,3 +1,7 @@
+//! This module defines some types and traits that service handlers
+//! implementations will rely upon.
+
+use crate::{cfg::Organization, github::Source};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -12,16 +16,11 @@ pub type ServiceName = &'static str;
 pub trait ServiceHandler {
     /// Return a summary of the changes detected in the service's state as
     /// defined in the configuration from the base to the head reference.
-    async fn get_changes_summary(
-        &self,
-        head_owner: Option<&str>,
-        head_repo: Option<&str>,
-        head_ref: &str,
-    ) -> Result<ChangesSummary>;
+    async fn get_changes_summary(&self, org: &Organization, head_src: &Source) -> Result<ChangesSummary>;
 
     /// Apply the changes needed so that the actual state (as defined in the
     /// service) matches the desired state (as defined in the configuration).
-    async fn reconcile(&self) -> Result<ChangesApplied>;
+    async fn reconcile(&self, org: &Organization) -> Result<ChangesApplied>;
 }
 
 /// Type alias to represent a service handler trait object.
@@ -71,6 +70,7 @@ pub enum BaseRefConfigStatus {
 
 impl BaseRefConfigStatus {
     /// Check if the configuration is invalid.
+    #[must_use]
     pub fn is_invalid(&self) -> bool {
         *self == BaseRefConfigStatus::Invalid
     }

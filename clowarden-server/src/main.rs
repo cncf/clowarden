@@ -1,3 +1,6 @@
+#![warn(clippy::all, clippy::pedantic)]
+#![allow(clippy::doc_markdown, clippy::similar_names)]
+
 use crate::db::PgDB;
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -48,7 +51,7 @@ async fn main() -> Result<()> {
 
     // Setup logging
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "clowarden=debug")
+        std::env::set_var("RUST_LOG", "clowarden=debug");
     }
     let s = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env());
     match cfg.get_string("log.format").as_deref() {
@@ -65,33 +68,33 @@ async fn main() -> Result<()> {
     let db = Arc::new(PgDB::new(pool));
 
     // Setup GitHub clients
-    let gh = Arc::new(github::GHApi::new(cfg.clone()).context("error setting up github client")?);
+    let gh_app: core::cfg::GitHubApp = cfg.get("server.githubApp")?;
+    let gh = Arc::new(github::GHApi::new(&gh_app).context("error setting up github client")?);
     let ghc = Arc::new(
-        core::github::GHApi::new_from_config(cfg.clone()).context("error setting up core github client")?,
+        core::github::GHApi::new_with_app_creds(&gh_app).context("error setting up core github client")?,
     );
 
     // Setup services handlers
     let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
-    if cfg.get_bool("server.config.services.github.enabled").unwrap_or_default() {
-        let svc = Arc::new(services::github::service::SvcApi::new_from_config(cfg.clone())?);
+    if cfg.get_bool("services.github.enabled").unwrap_or_default() {
+        let svc = Arc::new(services::github::service::SvcApi::new_with_app_creds(&gh_app)?);
         services.insert(
             services::github::SERVICE_NAME,
-            Box::new(services::github::Handler::new(cfg.clone(), ghc.clone(), svc)),
+            Box::new(services::github::Handler::new(ghc.clone(), svc)),
         );
     }
 
     // Setup and launch jobs workers
     let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(cfg.clone(), db.clone(), gh.clone(), ghc.clone(), services);
-    let jobs_scheduler = jobs::Scheduler::new();
+    let jobs_handler = jobs::Handler::new(db.clone(), gh.clone(), ghc.clone(), services);
     let jobs_workers_done = future::join_all([
         jobs_handler.start(jobs_rx, stop_tx.subscribe()),
-        jobs_scheduler.start(jobs_tx.clone(), stop_tx.subscribe()),
+        jobs::scheduler(jobs_tx.clone(), stop_tx.subscribe(), cfg.get("organizations")?),
     ]);
 
     // Setup and launch HTTP server
-    let router = handlers::setup_router(cfg.clone(), db.clone(), gh.clone(), jobs_tx)
+    let router = handlers::setup_router(&cfg, db.clone(), gh.clone(), jobs_tx)
         .context("error setting up http server router")?;
     let addr: SocketAddr = cfg.get_string("server.addr").unwrap().parse()?;
     info!("server started");
@@ -118,18 +121,8 @@ fn validate_config(cfg: &Config) -> Result<()> {
     // Required fields
     cfg.get_string("server.addr")?;
     cfg.get_string("server.staticPath")?;
-    cfg.get_int("server.githubApp.appId")?;
-    cfg.get_int("server.githubApp.installationId")?;
-    cfg.get_string("server.githubApp.privateKey")?;
-    cfg.get_string("server.githubApp.webhookSecret")?;
-    cfg.get_string("server.config.organization")?;
-    cfg.get_string("server.config.repository")?;
-    cfg.get_string("server.config.branch")?;
-
-    // Required fields when legacy config is used
-    if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
-        cfg.get_string("server.config.legacy.sheriff.permissionsPath")?;
-    }
+    let _: core::cfg::GitHubApp = cfg.get("server.githubApp")?;
+    let _: Vec<core::cfg::Organization> = cfg.get("organizations")?;
 
     Ok(())
 }

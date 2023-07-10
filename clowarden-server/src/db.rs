@@ -1,3 +1,5 @@
+//! This module defines an abstraction layer over the database.
+
 use crate::jobs::ReconcileInput;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
@@ -60,17 +62,17 @@ impl DB for PgDB {
         let tx = db.transaction().await?;
 
         // Prepare reconciliation errors summary
-        let errors_summary = if !errors.is_empty() {
+        let errors_summary = if errors.is_empty() {
+            None
+        } else {
             let mut summary = String::new();
             for (i, (service_name, error)) in errors.iter().enumerate() {
-                summary.push_str(&format!("{}: {:?}", service_name, error));
+                summary.push_str(&format!("{service_name}: {error:?}"));
                 if errors.len() > i + 1 {
                     summary.push('\n');
                 }
             }
             Some(summary)
-        } else {
-            None
         };
 
         // Register reconciliation entry
@@ -79,21 +81,24 @@ impl DB for PgDB {
                 "
                 insert into reconciliation (
                     error,
+                    organization,
                     pr_number,
                     pr_created_by,
                     pr_merged_by,
                     pr_merged_at
                 ) values (
                     $1::text,
-                    $2::bigint,
-                    $3::text,
+                    $2::text,
+                    $3::bigint,
                     $4::text,
-                    $5::timestamptz
+                    $5::text,
+                    $6::timestamptz
                 )
                 returning reconciliation_id
                 ",
                 &[
                     &errors_summary,
+                    &input.org.name,
                     &input.pr_number,
                     &input.pr_created_by,
                     &input.pr_merged_by,
@@ -184,6 +189,7 @@ pub(crate) struct SearchChangesInput {
     pub offset: Option<usize>,
     pub sort_by: Option<String>,
     pub sort_direction: Option<String>,
+    pub organization: Option<String>,
     pub service: Option<Vec<String>>,
     pub kind: Option<Vec<String>>,
     pub applied_from: Option<String>,
