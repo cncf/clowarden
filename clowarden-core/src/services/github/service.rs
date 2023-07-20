@@ -1,9 +1,13 @@
+//! This module defines an abstraction layer over the service's (GitHub) API.
+
 use super::state::{Repository, RepositoryName, Role, Visibility};
-use crate::directory::{self, TeamName, UserName};
-use anyhow::{Context, Error};
+use crate::{
+    cfg::{GitHubApp, Organization},
+    directory::{self, TeamName, UserName},
+};
+use anyhow::{format_err, Context, Result};
 use async_trait::async_trait;
 use cached::proc_macro::cached;
-use config::Config;
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
@@ -16,7 +20,7 @@ use octorust::{
         TeamsAddUpdateMembershipUserInOrgRequest, TeamsAddUpdateRepoPermissionsInOrgRequest,
         TeamsCreateRequest, TeamsListMembersInOrgRole,
     },
-    Client, ClientError,
+    Client,
 };
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -26,199 +30,219 @@ use tokio::time::{sleep, Duration};
 #[cfg_attr(test, automock)]
 pub trait Svc {
     /// Add repository to organization.
-    async fn add_repository(&self, repo: &Repository) -> Result<(), ClientError>;
+    async fn add_repository(&self, ctx: &Ctx, repo: &Repository) -> Result<()>;
 
     /// Add collaborator to repository.
     async fn add_repository_collaborator(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
         role: &Role,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Add team to repository.
     async fn add_repository_team(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
         role: &Role,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Add team to organization.
-    async fn add_team(&self, team: &directory::Team) -> Result<(), ClientError>;
+    async fn add_team(&self, ctx: &Ctx, team: &directory::Team) -> Result<()>;
 
     /// Add maintainer to the team.
-    async fn add_team_maintainer(
-        &self,
-        team_name: &TeamName,
-        user_name: &UserName,
-    ) -> Result<(), ClientError>;
+    async fn add_team_maintainer(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()>;
 
     /// Add member to the team.
-    async fn add_team_member(&self, team_name: &TeamName, user_name: &UserName) -> Result<(), ClientError>;
+    async fn add_team_member(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()>;
 
     /// Get user's membership in team provided.
     async fn get_team_membership(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
         user_name: &UserName,
-    ) -> Result<TeamMembership, ClientError>;
+    ) -> Result<TeamMembership>;
 
     /// List organization admins.
-    async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError>;
+    async fn list_org_admins(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>>;
 
     /// List organization members.
-    async fn list_org_members(&self) -> Result<Vec<SimpleUser>, ClientError>;
+    async fn list_org_members(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>>;
 
     /// List repositories in the organization.
-    async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError>;
+    async fn list_repositories(&self, ctx: &Ctx) -> Result<Vec<MinimalRepository>>;
 
     /// List repository's collaborators.
     async fn list_repository_collaborators(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
-    ) -> Result<Vec<Collaborator>, ClientError>;
+    ) -> Result<Vec<Collaborator>>;
 
     /// List repository's invitations.
     async fn list_repository_invitations(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
-    ) -> Result<Vec<RepositoryInvitation>, ClientError>;
+    ) -> Result<Vec<RepositoryInvitation>>;
 
     /// List repository's teams.
-    async fn list_repository_teams(&self, repo_name: &RepositoryName) -> Result<Vec<Team>, ClientError>;
+    async fn list_repository_teams(&self, ctx: &Ctx, repo_name: &RepositoryName) -> Result<Vec<Team>>;
 
     /// List team's invitations.
     async fn list_team_invitations(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
-    ) -> Result<Vec<OrganizationInvitation>, ClientError>;
+    ) -> Result<Vec<OrganizationInvitation>>;
 
     /// List team's maintainers.
-    async fn list_team_maintainers(&self, team_name: &TeamName) -> Result<Vec<SimpleUser>, ClientError>;
+    async fn list_team_maintainers(&self, ctx: &Ctx, team_name: &TeamName) -> Result<Vec<SimpleUser>>;
 
     /// List team's members.
-    async fn list_team_members(&self, team_name: &TeamName) -> Result<Vec<SimpleUser>, ClientError>;
+    async fn list_team_members(&self, ctx: &Ctx, team_name: &TeamName) -> Result<Vec<SimpleUser>>;
 
     /// List teams in the organization.
-    async fn list_teams(&self) -> Result<Vec<Team>, ClientError>;
+    async fn list_teams(&self, ctx: &Ctx) -> Result<Vec<Team>>;
 
     /// Remove collaborator from repository.
     async fn remove_repository_collaborator(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Remove repository invitation.
     async fn remove_repository_invitation(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         invitation_id: i64,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Remove team from repository.
     async fn remove_repository_team(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Remove team from organization.
-    async fn remove_team(&self, team_name: &TeamName) -> Result<(), ClientError>;
+    async fn remove_team(&self, ctx: &Ctx, team_name: &TeamName) -> Result<()>;
 
     /// Remove maintainer from the team.
     async fn remove_team_maintainer(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
         user_name: &UserName,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Remove member from the team.
-    async fn remove_team_member(&self, team_name: &TeamName, user_name: &UserName)
-        -> Result<(), ClientError>;
+    async fn remove_team_member(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()>;
 
     /// Update collaborator role in repository.
     async fn update_repository_collaborator_role(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
         role: &Role,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Update repository invitation.
     async fn update_repository_invitation(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         invitation_id: i64,
         role: &Role,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Update team role in repository.
     async fn update_repository_team_role(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
         role: &Role,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 
     /// Update repository visibility.
     async fn update_repository_visibility(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         visibility: &Visibility,
-    ) -> Result<(), ClientError>;
+    ) -> Result<()>;
 }
 
 /// Type alias to represent a Svc trait object.
 pub type DynSvc = Arc<dyn Svc + Send + Sync>;
 
 /// Svc implementation backed by the GitHub API.
+#[derive(Default)]
 pub struct SvcApi {
-    client: Client,
-    org: String,
+    app_credentials: Option<JWTCredentials>,
+    token: Option<String>,
 }
 
 impl SvcApi {
-    /// Create a new SvcApi instance.
-    pub fn new(org: String, token: String) -> Result<Self, Error> {
-        // Setup GitHub API client
-        let client = Client::new(
-            format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-            Credentials::Token(token),
-        )?;
-
-        Ok(Self { client, org })
+    /// Create a new SvcApi instance using the token provided.
+    #[must_use]
+    pub fn new_with_token(token: String) -> Self {
+        Self {
+            token: Some(token),
+            ..Default::default()
+        }
     }
 
-    /// Create a new SvcApi instance from the configuration instance provided.
-    pub fn new_from_config(cfg: Arc<Config>) -> Result<Self, Error> {
+    /// Create a new SvcApi instance using the app credentials provided in the
+    /// configuration.
+    pub fn new_with_app_creds(gh_app: &GitHubApp) -> Result<Self> {
         // Setup GitHub app credentials
-        let app_id = cfg.get_int("server.githubApp.appId").unwrap();
-        let app_private_key =
-            pem::parse(cfg.get_string("server.githubApp.privateKey").unwrap())?.contents().to_owned();
-        let credentials =
-            JWTCredentials::new(app_id, app_private_key).context("error setting up credentials")?;
-
-        // Setup GitHub API client
-        let inst_id = cfg.get_int("server.githubApp.installationId").unwrap();
-        let tg = InstallationTokenGenerator::new(inst_id, credentials);
-        let client = Client::new(
-            format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-            Credentials::InstallationToken(tg),
-        )?;
+        let private_key = pem::parse(&gh_app.private_key)?.contents().to_owned();
+        let jwt_credentials =
+            JWTCredentials::new(gh_app.app_id, private_key).context("error setting up credentials")?;
 
         Ok(Self {
-            client,
-            org: cfg.get_string("server.config.organization").unwrap(),
+            app_credentials: Some(jwt_credentials),
+            ..Default::default()
         })
+    }
+
+    /// Setup GitHub API client for the installation id provided (if any).
+    fn setup_client(&self, inst_id: Option<i64>) -> Result<Client> {
+        let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+
+        let credentials = if let Some(inst_id) = inst_id {
+            let Some(app_creds) = self.app_credentials.clone() else {
+                return Err(format_err!("error setting up github client: app credentials not provided"));
+            };
+            Credentials::InstallationToken(InstallationTokenGenerator::new(inst_id, app_creds))
+        } else {
+            let Some(token) = self.token.clone() else {
+                return Err(format_err!("error setting up github client: token not provided"));
+            };
+            Credentials::Token(token)
+        };
+
+        Ok(Client::new(user_agent, credentials)?)
     }
 }
 
 #[async_trait]
 impl Svc for SvcApi {
     /// [Svc::add_repository]
-    async fn add_repository(&self, repo: &Repository) -> Result<(), ClientError> {
+    async fn add_repository(&self, ctx: &Ctx, repo: &Repository) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+
         // Create repository
         let visibility = match repo.visibility {
             Some(Visibility::Internal) => Some(ReposCreateInOrgRequestVisibility::Internal),
@@ -233,33 +257,33 @@ impl Svc for SvcApi {
             allow_squash_merge: None,
             auto_init: None,
             delete_branch_on_merge: None,
-            description: "".to_string(),
-            gitignore_template: "".to_string(),
+            description: String::new(),
+            gitignore_template: String::new(),
             has_issues: None,
             has_projects: None,
             has_wiki: None,
-            homepage: "".to_string(),
+            homepage: String::new(),
             is_template: None,
-            license_template: "".to_string(),
+            license_template: String::new(),
             name: repo.name.clone(),
             private: None,
             team_id: 0,
             visibility,
         };
-        self.client.repos().create_in_org(&self.org, &body).await?;
+        client.repos().create_in_org(&ctx.org, &body).await?;
         sleep(Duration::from_secs(1)).await;
 
         // Add repository teams
         if let Some(teams) = &repo.teams {
             for (team_name, role) in teams {
-                self.add_repository_team(&repo.name, team_name, role).await?;
+                self.add_repository_team(ctx, &repo.name, team_name, role).await?;
             }
         }
 
         // Add repository collaborators
         if let Some(collaborators) = &repo.collaborators {
             for (user_name, role) in collaborators {
-                self.add_repository_collaborator(&repo.name, user_name, role).await?;
+                self.add_repository_collaborator(ctx, &repo.name, user_name, role).await?;
             }
         }
 
@@ -269,81 +293,85 @@ impl Svc for SvcApi {
     /// [Svc::add_repository_collaborator]
     async fn add_repository_collaborator(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
         role: &Role,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = ReposAddCollaboratorRequest {
             permission: Some(role.into()),
-            permissions: "".to_string(),
+            permissions: String::new(),
         };
-        self.client.repos().add_collaborator(&self.org, repo_name, user_name, &body).await?;
+        client.repos().add_collaborator(&ctx.org, repo_name, user_name, &body).await?;
         Ok(())
     }
 
     /// [Svc::add_repository_team]
     async fn add_repository_team(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
         role: &Role,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = TeamsAddUpdateRepoPermissionsInOrgRequest {
             permission: Some(role.into()),
         };
-        self.client
+        client
             .teams()
-            .add_or_update_repo_permissions_in_org(&self.org, team_name, &self.org, repo_name, &body)
-            .await
+            .add_or_update_repo_permissions_in_org(&ctx.org, team_name, &ctx.org, repo_name, &body)
+            .await?;
+        Ok(())
     }
 
     /// [Svc::add_team]
-    async fn add_team(&self, team: &directory::Team) -> Result<(), ClientError> {
+    async fn add_team(&self, ctx: &Ctx, team: &directory::Team) -> Result<()> {
         // Create team
+        let client = self.setup_client(ctx.inst_id)?;
         let body = TeamsCreateRequest {
             name: team.name.clone(),
-            description: "".to_string(),
+            description: String::new(),
             maintainers: team.maintainers.clone(),
             parent_team_id: 0,
             permission: None,
             privacy: Some(Privacy::Closed),
             repo_names: vec![],
         };
-        self.client.teams().create(&self.org, &body).await?;
+        client.teams().create(&ctx.org, &body).await?;
         sleep(Duration::from_secs(1)).await;
 
         // Add team members
         for user_name in &team.members {
-            self.add_team_member(&team.name, user_name).await?;
+            self.add_team_member(ctx, &team.name, user_name).await?;
         }
 
         Ok(())
     }
 
     /// [Svc::add_team_maintainer]
-    async fn add_team_maintainer(
-        &self,
-        team_name: &TeamName,
-        user_name: &UserName,
-    ) -> Result<(), ClientError> {
+    async fn add_team_maintainer(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = TeamsAddUpdateMembershipUserInOrgRequest {
             role: Some(TeamMembershipRole::Maintainer),
         };
-        self.client
+        client
             .teams()
-            .add_or_update_membership_for_user_in_org(&self.org, team_name, user_name, &body)
+            .add_or_update_membership_for_user_in_org(&ctx.org, team_name, user_name, &body)
             .await?;
         Ok(())
     }
 
     /// [Svc::add_team_member]
-    async fn add_team_member(&self, team_name: &TeamName, user_name: &UserName) -> Result<(), ClientError> {
+    async fn add_team_member(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = TeamsAddUpdateMembershipUserInOrgRequest {
             role: Some(TeamMembershipRole::Member),
         };
-        self.client
+        client
             .teams()
-            .add_or_update_membership_for_user_in_org(&self.org, team_name, user_name, &body)
+            .add_or_update_membership_for_user_in_org(&ctx.org, team_name, user_name, &body)
             .await?;
         Ok(())
     }
@@ -351,14 +379,16 @@ impl Svc for SvcApi {
     /// [Svc::get_team_membership]
     async fn get_team_membership(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
         user_name: &UserName,
-    ) -> Result<TeamMembership, ClientError> {
-        self.client.teams().get_membership_for_user_in_org(&self.org, team_name, user_name).await
+    ) -> Result<TeamMembership> {
+        let client = self.setup_client(ctx.inst_id)?;
+        Ok(client.teams().get_membership_for_user_in_org(&ctx.org, team_name, user_name).await?)
     }
 
     /// [Svc::list_org_admins]
-    async fn list_org_admins(&self) -> Result<Vec<SimpleUser>, ClientError> {
+    async fn list_org_admins(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
             time = 60,
             sync_writes = true,
@@ -366,17 +396,19 @@ impl Svc for SvcApi {
             key = "String",
             convert = r#"{ format!("") }"#
         )]
-        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>, ClientError> {
-            client
+        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>> {
+            let members = client
                 .orgs()
                 .list_all_members(org, OrgsListMembersFilter::All, OrgsListMembersRole::Admin)
-                .await
+                .await?;
+            Ok(members)
         }
-        inner(&self.client, &self.org).await
+        let client = self.setup_client(ctx.inst_id)?;
+        inner(&client, &ctx.org).await
     }
 
     /// [Svc::list_org_members]
-    async fn list_org_members(&self) -> Result<Vec<SimpleUser>, ClientError> {
+    async fn list_org_members(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
             time = 60,
             sync_writes = true,
@@ -384,44 +416,50 @@ impl Svc for SvcApi {
             key = "String",
             convert = r#"{ format!("") }"#
         )]
-        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>, ClientError> {
-            client
+        async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>> {
+            let members = client
                 .orgs()
                 .list_all_members(org, OrgsListMembersFilter::All, OrgsListMembersRole::All)
-                .await
+                .await?;
+            Ok(members)
         }
-        inner(&self.client, &self.org).await
+        let client = self.setup_client(ctx.inst_id)?;
+        inner(&client, &ctx.org).await
     }
 
     /// [Svc::list_repositories]
-    async fn list_repositories(&self) -> Result<Vec<MinimalRepository>, ClientError> {
-        self.client
+    async fn list_repositories(&self, ctx: &Ctx) -> Result<Vec<MinimalRepository>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let repos = client
             .repos()
             .list_all_for_org(
-                &self.org,
+                &ctx.org,
                 ReposListOrgType::All,
                 ReposListOrgSort::FullName,
                 Order::Asc,
             )
-            .await
+            .await?;
+        Ok(repos)
     }
 
     /// [Svc::list_repository_collaborators]
     async fn list_repository_collaborators(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
-    ) -> Result<Vec<Collaborator>, ClientError> {
-        self.client
-            .repos()
-            .list_all_collaborators(&self.org, repo_name, Affiliation::Direct)
-            .await
+    ) -> Result<Vec<Collaborator>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let collaborators =
+            client.repos().list_all_collaborators(&ctx.org, repo_name, Affiliation::Direct).await?;
+        Ok(collaborators)
     }
 
     /// [Svc::list_repository_invitations]
     async fn list_repository_invitations(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
-    ) -> Result<Vec<RepositoryInvitation>, ClientError> {
+    ) -> Result<Vec<RepositoryInvitation>> {
         #[cached(
             time = 60,
             sync_writes = true,
@@ -429,157 +467,181 @@ impl Svc for SvcApi {
             key = "String",
             convert = r#"{ format!("{}", repo_name) }"#
         )]
-        async fn inner(
-            client: &Client,
-            org: &str,
-            repo_name: &str,
-        ) -> Result<Vec<RepositoryInvitation>, ClientError> {
-            client.repos().list_all_invitations(org, repo_name).await
+        async fn inner(client: &Client, org: &str, repo_name: &str) -> Result<Vec<RepositoryInvitation>> {
+            let invitations = client.repos().list_all_invitations(org, repo_name).await?;
+            Ok(invitations)
         }
-        inner(&self.client, &self.org, repo_name).await
+        let client = self.setup_client(ctx.inst_id)?;
+        inner(&client, &ctx.org, repo_name).await
     }
 
     /// [Svc::list_repository_teams]
-    async fn list_repository_teams(&self, repo_name: &RepositoryName) -> Result<Vec<Team>, ClientError> {
-        self.client.repos().list_all_teams(&self.org, repo_name).await
+    async fn list_repository_teams(&self, ctx: &Ctx, repo_name: &RepositoryName) -> Result<Vec<Team>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let teams = client.repos().list_all_teams(&ctx.org, repo_name).await?;
+        Ok(teams)
     }
 
     /// [Svc::list_team_invitations]
     async fn list_team_invitations(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
-    ) -> Result<Vec<OrganizationInvitation>, ClientError> {
-        self.client.teams().list_all_pending_invitations_in_org(&self.org, team_name).await
+    ) -> Result<Vec<OrganizationInvitation>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let invitations = client.teams().list_all_pending_invitations_in_org(&ctx.org, team_name).await?;
+        Ok(invitations)
     }
 
     /// [Svc::list_team_maintainers]
-    async fn list_team_maintainers(&self, team_name: &TeamName) -> Result<Vec<SimpleUser>, ClientError> {
-        self.client
+    async fn list_team_maintainers(&self, ctx: &Ctx, team_name: &TeamName) -> Result<Vec<SimpleUser>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let maintainers = client
             .teams()
-            .list_all_members_in_org(&self.org, team_name, TeamsListMembersInOrgRole::Maintainer)
-            .await
+            .list_all_members_in_org(&ctx.org, team_name, TeamsListMembersInOrgRole::Maintainer)
+            .await?;
+        Ok(maintainers)
     }
 
     /// [Svc::list_team_members]
-    async fn list_team_members(&self, team_name: &TeamName) -> Result<Vec<SimpleUser>, ClientError> {
-        self.client
+    async fn list_team_members(&self, ctx: &Ctx, team_name: &TeamName) -> Result<Vec<SimpleUser>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let members = client
             .teams()
-            .list_all_members_in_org(&self.org, team_name, TeamsListMembersInOrgRole::Member)
-            .await
+            .list_all_members_in_org(&ctx.org, team_name, TeamsListMembersInOrgRole::Member)
+            .await?;
+        Ok(members)
     }
 
     /// [Svc::list_teams]
-    async fn list_teams(&self) -> Result<Vec<Team>, ClientError> {
-        self.client.teams().list_all(&self.org).await
+    async fn list_teams(&self, ctx: &Ctx) -> Result<Vec<Team>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let teams = client.teams().list_all(&ctx.org).await?;
+        Ok(teams)
     }
 
     /// [Svc::remove_repository_collaborator]
     async fn remove_repository_collaborator(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
-    ) -> Result<(), ClientError> {
-        self.client.repos().remove_collaborator(&self.org, repo_name, user_name).await
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.repos().remove_collaborator(&ctx.org, repo_name, user_name).await?;
+        Ok(())
     }
 
     /// [Svc::remove_repository_invitation]
     async fn remove_repository_invitation(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         invitation_id: i64,
-    ) -> Result<(), ClientError> {
-        self.client.repos().delete_invitation(&self.org, repo_name, invitation_id).await
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.repos().delete_invitation(&ctx.org, repo_name, invitation_id).await?;
+        Ok(())
     }
 
     /// [Svc::remove_repository_team]
     async fn remove_repository_team(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
-    ) -> Result<(), ClientError> {
-        self.client.teams().remove_repo_in_org(&self.org, team_name, &self.org, repo_name).await
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.teams().remove_repo_in_org(&ctx.org, team_name, &ctx.org, repo_name).await?;
+        Ok(())
     }
 
     /// [Svc::remove_team]
-    async fn remove_team(&self, team_name: &TeamName) -> Result<(), ClientError> {
-        self.client.teams().delete_in_org(&self.org, team_name).await
+    async fn remove_team(&self, ctx: &Ctx, team_name: &TeamName) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.teams().delete_in_org(&ctx.org, team_name).await?;
+        Ok(())
     }
 
     /// [Svc::remove_team_maintainer]
     async fn remove_team_maintainer(
         &self,
+        ctx: &Ctx,
         team_name: &TeamName,
         user_name: &UserName,
-    ) -> Result<(), ClientError> {
-        self.client
-            .teams()
-            .remove_membership_for_user_in_org(&self.org, team_name, user_name)
-            .await
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.teams().remove_membership_for_user_in_org(&ctx.org, team_name, user_name).await?;
+        Ok(())
     }
 
     /// [Svc::remove_team_member]
-    async fn remove_team_member(
-        &self,
-        team_name: &TeamName,
-        user_name: &UserName,
-    ) -> Result<(), ClientError> {
-        self.client
-            .teams()
-            .remove_membership_for_user_in_org(&self.org, team_name, user_name)
-            .await
+    async fn remove_team_member(&self, ctx: &Ctx, team_name: &TeamName, user_name: &UserName) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        client.teams().remove_membership_for_user_in_org(&ctx.org, team_name, user_name).await?;
+        Ok(())
     }
 
     /// [Svc::update_repository_collaborator_role]
     async fn update_repository_collaborator_role(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         user_name: &UserName,
         role: &Role,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = ReposAddCollaboratorRequest {
             permission: Some(role.into()),
-            permissions: "".to_string(),
+            permissions: String::new(),
         };
-        self.client.repos().add_collaborator(&self.org, repo_name, user_name, &body).await?;
+        client.repos().add_collaborator(&ctx.org, repo_name, user_name, &body).await?;
         Ok(())
     }
 
     /// [Svc::update_repository_invitation]
     async fn update_repository_invitation(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         invitation_id: i64,
         role: &Role,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = ReposUpdateInvitationRequest {
             permissions: Some(role.into()),
         };
-        self.client.repos().update_invitation(&self.org, repo_name, invitation_id, &body).await?;
+        client.repos().update_invitation(&ctx.org, repo_name, invitation_id, &body).await?;
         Ok(())
     }
 
     /// [Svc::update_repository_team_role]
     async fn update_repository_team_role(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         team_name: &TeamName,
         role: &Role,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let body = TeamsAddUpdateRepoPermissionsInOrgRequest {
             permission: Some(role.into()),
         };
-        self.client
+        client
             .teams()
-            .add_or_update_repo_permissions_in_org(&self.org, team_name, &self.org, repo_name, &body)
-            .await
+            .add_or_update_repo_permissions_in_org(&ctx.org, team_name, &ctx.org, repo_name, &body)
+            .await?;
+        Ok(())
     }
 
     /// [Svc::update_repository_visibility]
     async fn update_repository_visibility(
         &self,
+        ctx: &Ctx,
         repo_name: &RepositoryName,
         visibility: &Visibility,
-    ) -> Result<(), ClientError> {
+    ) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
         let visibility = match visibility {
             Visibility::Internal => Some(ReposCreateInOrgRequestVisibility::Internal),
             Visibility::Private => Some(ReposCreateInOrgRequestVisibility::Private),
@@ -591,20 +653,35 @@ impl Svc for SvcApi {
             allow_rebase_merge: None,
             allow_squash_merge: None,
             archived: None,
-            default_branch: "".to_string(),
+            default_branch: String::new(),
             delete_branch_on_merge: None,
-            description: "".to_string(),
+            description: String::new(),
             has_issues: None,
             has_projects: None,
             has_wiki: None,
-            homepage: "".to_string(),
+            homepage: String::new(),
             is_template: None,
             name: repo_name.clone(),
             private: None,
             security_and_analysis: None,
             visibility,
         };
-        self.client.repos().update(&self.org, repo_name, &body).await?;
+        client.repos().update(&ctx.org, repo_name, &body).await?;
         Ok(())
+    }
+}
+
+/// Information about the target of a GitHub API request.
+pub struct Ctx {
+    pub inst_id: Option<i64>,
+    pub org: String,
+}
+
+impl From<&Organization> for Ctx {
+    fn from(org: &Organization) -> Self {
+        Ctx {
+            inst_id: Some(org.installation_id),
+            org: org.name.clone(),
+        }
     }
 }

@@ -1,7 +1,10 @@
+//! This module defines the handlers used to process HTTP requests to the
+//! supported endpoints.
+
 use crate::{
     db::{DynDB, SearchChangesInput},
-    github::{self, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
-    jobs::Job,
+    github::{self, Ctx, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
+    jobs::{Job, ReconcileInput, ValidateInput},
 };
 use anyhow::{format_err, Error, Result};
 use axum::{
@@ -15,6 +18,7 @@ use axum::{
     routing::{get, get_service, post},
     Router,
 };
+use clowarden_core::cfg::Organization;
 use config::Config;
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
@@ -49,16 +53,16 @@ const PAGINATION_TOTAL_COUNT: &str = "pagination-total-count";
 /// Router's state.
 #[derive(Clone, FromRef)]
 struct RouterState {
-    cfg: Arc<Config>,
     db: DynDB,
     gh: DynGH,
     webhook_secret: String,
     jobs_tx: mpsc::UnboundedSender<Job>,
+    orgs: Vec<Organization>,
 }
 
 /// Setup HTTP server router.
 pub(crate) fn setup_router(
-    cfg: Arc<Config>,
+    cfg: &Arc<Config>,
     db: DynDB,
     gh: DynGH,
     jobs_tx: mpsc::UnboundedSender<Job>,
@@ -74,6 +78,7 @@ pub(crate) fn setup_router(
 
     // Setup audit router
     let mut audit_router = Router::new()
+        .route("/api/organizations", get(list_organizations))
         .route("/api/changes/search", get(search_changes))
         .nest_service(
             "/static",
@@ -94,6 +99,7 @@ pub(crate) fn setup_router(
     }
 
     // Setup main router
+    let orgs = cfg.get("organizations")?;
     let router = Router::new()
         .route("/webhook/github", post(event))
         .route("/health-check", get(health_check))
@@ -111,17 +117,18 @@ pub(crate) fn setup_router(
         .fallback_service(get_service(ServeFile::new(&root_index_path)))
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {
-            cfg,
             db,
             gh,
             webhook_secret,
             jobs_tx,
+            orgs,
         });
 
     Ok(router)
 }
 
 /// Handler that takes care of health check requests.
+#[allow(clippy::unused_async)]
 async fn health_check() -> impl IntoResponse {
     ""
 }
@@ -130,10 +137,10 @@ async fn health_check() -> impl IntoResponse {
 #[allow(clippy::let_with_type_underscore)]
 #[instrument(skip_all, err(Debug))]
 async fn event(
-    State(cfg): State<Arc<Config>>,
     State(gh): State<DynGH>,
     State(webhook_secret): State<String>,
     State(jobs_tx): State<mpsc::UnboundedSender<Job>>,
+    State(orgs): State<Vec<Organization>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -166,6 +173,14 @@ async fn event(
     // Take action on event when needed
     match event {
         Event::PullRequest(event) => {
+            // Check event comes from a registered organization
+            let Some(gh_org) = &event.organization else {
+                return Ok(());
+            };
+            let Some(org) = orgs.iter().find(|o| o.name == gh_org.login).cloned() else {
+                return Ok(());
+            };
+
             // Check if we are interested on the event's action
             if ![
                 PullRequestEventAction::Closed,
@@ -178,7 +193,7 @@ async fn event(
             }
 
             // Check if the PR updates the configuration files
-            match pr_updates_config(cfg.clone(), gh.clone(), &event).await {
+            match pr_updates_config(gh.clone(), &org, &event).await {
                 Ok(true) => {
                     // It does, go ahead processing event
                 }
@@ -196,23 +211,24 @@ async fn event(
             match event.action {
                 PullRequestEventAction::Opened | PullRequestEventAction::Synchronize => {
                     // Create validation in-progress check run
+                    let ctx = Ctx::from(&org);
                     let check_body = github::new_checks_create_request(
                         event.pull_request.head.sha.clone(),
                         Some(JobStatus::InProgress),
                         None,
                         "Validating configuration changes",
                     );
-                    if let Err(err) = gh.create_check_run(&check_body).await {
+                    if let Err(err) = gh.create_check_run(&ctx, &check_body).await {
                         error!(?err, "error creating validation in-progress check run");
                     }
 
                     // Enqueue validation job
-                    let input = event.pull_request.into();
+                    let input = ValidateInput::new(org, event.pull_request);
                     _ = jobs_tx.send(Job::Validate(input));
                 }
                 PullRequestEventAction::Closed if event.pull_request.merged => {
                     // Enqueue reconcile job
-                    let input = event.pull_request.into();
+                    let input = ReconcileInput::new(org, event.pull_request);
                     _ = jobs_tx.send(Job::Reconcile(input));
                 }
                 _ => {}
@@ -221,6 +237,21 @@ async fn event(
     }
 
     Ok(())
+}
+
+/// Handler that lists the registered organizations.
+#[allow(clippy::unused_async)]
+async fn list_organizations(State(orgs): State<Vec<Organization>>) -> impl IntoResponse {
+    // Prepare organizations list
+    let orgs_names: Vec<String> = orgs.iter().map(|o| o.name.clone()).collect();
+    let orgs_names_json = serde_json::to_string(&orgs_names).map_err(internal_error)?;
+
+    // Return organizations list as json
+    Response::builder()
+        .header(CACHE_CONTROL, format!("max-age={DEFAULT_API_MAX_AGE}"))
+        .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
+        .body(Full::from(orgs_names_json))
+        .map_err(internal_error)
 }
 
 /// Handler that allows searching for changes.
@@ -255,29 +286,27 @@ fn verify_signature(signature: Option<&HeaderValue>, secret: &[u8], body: &[u8])
 }
 
 /// Check if the pull request in the event provided updates any of the
-/// configuration files.
-async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent) -> Result<bool> {
+/// organization configuration files.
+async fn pr_updates_config(gh: DynGH, org: &Organization, event: &PullRequestEvent) -> Result<bool> {
     // Check if repository in PR matches with config
-    let cfg_repo = &cfg.get_string("server.config.repository").unwrap();
-    if cfg_repo != &event.repository.name {
+    if org.repository != event.repository.name {
         return Ok(false);
     }
 
     // Check if base branch in PR matches with config
-    let cfg_branch = &cfg.get_string("server.config.branch").unwrap();
-    if cfg_branch != &event.pull_request.base.ref_ {
+    if org.branch != event.pull_request.base.ref_ {
         return Ok(false);
     }
 
     // Check if any of the configuration files is on the pr
-    if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
-        let mut legacy_cfg_files =
-            vec![cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap()];
-        if let Ok(people_path) = cfg.get_string("server.config.legacy.cncf.peoplePath") {
-            legacy_cfg_files.push(people_path);
+    if org.legacy.enabled {
+        let mut legacy_cfg_files = vec![&org.legacy.sheriff_permissions_path];
+        if let Some(cncf_people_path) = &org.legacy.cncf_people_path {
+            legacy_cfg_files.push(cncf_people_path);
         };
-        for filename in gh.list_pr_files(event.pull_request.number).await? {
-            if legacy_cfg_files.contains(&filename) {
+        let ctx = Ctx::from(org);
+        for filename in gh.list_pr_files(&ctx, event.pull_request.number).await? {
+            if legacy_cfg_files.contains(&&filename) {
                 return Ok(true);
             }
         }
@@ -287,6 +316,7 @@ async fn pr_updates_config(cfg: Arc<Config>, gh: DynGH, event: &PullRequestEvent
 }
 
 /// Helper for mapping any error into a `500 Internal Server Error` response.
+#[allow(clippy::needless_pass_by_value)]
 fn internal_error<E>(err: E) -> StatusCode
 where
     E: Into<Error> + Display,

@@ -1,8 +1,14 @@
-use crate::{github::DynGH, multierror::MultiError};
+//! This module defines the types used to represent the legacy configuration
+//! format (Sheriff's and CNCF's users). The directory module relies on this
+//! module to create new directory instances from the legacy configuration.
+
+use crate::{
+    cfg::Legacy,
+    github::{DynGH, Source},
+    multierror::MultiError,
+};
 use anyhow::Result;
-use config::Config;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// Legacy configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -13,17 +19,11 @@ pub(crate) struct Cfg {
 
 impl Cfg {
     /// Get legacy configuration.
-    pub(crate) async fn get(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        owner: Option<&str>,
-        repo: Option<&str>,
-        ref_: Option<&str>,
-    ) -> Result<Cfg> {
+    pub(crate) async fn get(gh: DynGH, legacy: &Legacy, src: &Source) -> Result<Cfg> {
         let mut merr = MultiError::new(Some("invalid directory configuration".to_string()));
 
         // Get sheriff configuration
-        let sheriff = match sheriff::Cfg::get(cfg.clone(), gh.clone(), owner, repo, ref_).await {
+        let sheriff = match sheriff::Cfg::get(gh.clone(), src, &legacy.sheriff_permissions_path).await {
             Ok(cfg) => Some(cfg),
             Err(err) => {
                 merr.push(err);
@@ -32,7 +32,7 @@ impl Cfg {
         };
 
         // Get CNCF people configuration
-        let cncf = match cncf::Cfg::get(cfg, gh, owner, repo, ref_).await {
+        let cncf = match cncf::Cfg::get(gh, src, legacy.cncf_people_path.as_deref()).await {
             Ok(cfg) => cfg,
             Err(err) => {
                 merr.push(err);
@@ -53,13 +53,11 @@ impl Cfg {
 pub(crate) mod sheriff {
     use crate::{
         directory::{TeamName, UserName},
-        github::DynGH,
+        github::{DynGH, Source},
         multierror::MultiError,
     };
     use anyhow::{format_err, Context, Error, Result};
-    use config::Config;
     use serde::{Deserialize, Serialize};
-    use std::sync::Arc;
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file
@@ -70,19 +68,9 @@ pub(crate) mod sheriff {
 
     impl Cfg {
         /// Get sheriff configuration.
-        pub(crate) async fn get(
-            cfg: Arc<Config>,
-            gh: DynGH,
-            owner: Option<&str>,
-            repo: Option<&str>,
-            ref_: Option<&str>,
-        ) -> Result<Self> {
+        pub(crate) async fn get(gh: DynGH, src: &Source, path: &str) -> Result<Self> {
             // Fetch configuration file and parse it
-            let path = &cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap();
-            let content = gh
-                .get_file_content(path, owner, repo, ref_)
-                .await
-                .context("error getting permissions file")?;
+            let content = gh.get_file_content(src, path).await.context("error getting permissions file")?;
             let mut cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
                 .context("error parsing permissions file")?;
@@ -100,7 +88,7 @@ pub(crate) mod sheriff {
         fn process_composite_teams(&mut self) {
             let teams_copy = self.teams.clone();
 
-            for team in self.teams.iter_mut() {
+            for team in &mut self.teams {
                 if let Some(formation) = &team.formation {
                     for team_name in formation {
                         if let Some(source_team) = teams_copy.iter().find(|t| &t.name == team_name) {
@@ -126,7 +114,7 @@ pub(crate) mod sheriff {
 
         /// Remove duplicates in teams' maintainers and members.
         fn remove_duplicates(&mut self) {
-            for team in self.teams.iter_mut() {
+            for team in &mut self.teams {
                 // Maintainers
                 if let Some(maintainers) = team.maintainers.as_mut() {
                     maintainers.sort();
@@ -151,7 +139,7 @@ pub(crate) mod sheriff {
                 // available, it'll be the team name. Otherwise we'll use its
                 // index on the list.
                 let id = if team.name.is_empty() {
-                    format!("{}", i)
+                    format!("{i}")
                 } else {
                     team.name.clone()
                 };
@@ -206,11 +194,12 @@ pub(crate) mod sheriff {
 }
 
 pub(crate) mod cncf {
-    use crate::{github::DynGH, multierror::MultiError};
+    use crate::{
+        github::{DynGH, Source},
+        multierror::MultiError,
+    };
     use anyhow::{format_err, Context, Error, Result};
-    use config::Config;
     use serde::{Deserialize, Serialize};
-    use std::sync::Arc;
 
     /// CNCF people configuration.
     /// https://github.com/cncf/people/tree/main#listing-format
@@ -222,26 +211,18 @@ pub(crate) mod cncf {
 
     impl Cfg {
         /// Get CNCF people configuration.
-        pub(crate) async fn get(
-            cfg: Arc<Config>,
-            gh: DynGH,
-            owner: Option<&str>,
-            repo: Option<&str>,
-            ref_: Option<&str>,
-        ) -> Result<Option<Self>> {
-            match &cfg.get_string("server.config.legacy.cncf.peoplePath") {
-                Ok(path) => {
-                    let content = gh
-                        .get_file_content(path, owner, repo, ref_)
-                        .await
-                        .context("error getting cncf people file")?;
+        pub(crate) async fn get(gh: DynGH, src: &Source, path: Option<&str>) -> Result<Option<Self>> {
+            match path {
+                Some(path) => {
+                    let content =
+                        gh.get_file_content(src, path).await.context("error getting cncf people file")?;
                     let cfg: Cfg = serde_json::from_str(&content)
                         .map_err(Error::new)
                         .context("error parsing cncf people file")?;
                     cfg.validate()?;
                     Ok(Some(cfg))
                 }
-                Err(_) => Ok(None),
+                None => Ok(None),
             }
         }
 

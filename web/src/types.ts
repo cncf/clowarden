@@ -74,6 +74,7 @@ export enum ErrorKind {
 export interface BasicQuery {
   ts_query_web?: string;
   time_range?: string;
+  organization?: string;
   filters?: {
     [key: string]: string[];
   };
@@ -104,6 +105,7 @@ export interface Change {
 
 export interface ReconciliationStatus {
   reconciliation_id: string;
+  organization?: string;
   completed_at: number;
   error?: string;
   pr_number: string;

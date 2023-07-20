@@ -1,9 +1,12 @@
+//! This module defines the types used to represent a directory as well as some
+//! functionality to create new instances or comparing them.
+
 use crate::{
-    github::DynGH,
+    cfg::{Legacy, Organization},
+    github::{DynGH, Source},
     services::{BaseRefConfigStatus, Change, ChangeDetails, ChangesSummary, DynChange},
 };
 use anyhow::{format_err, Context, Result};
-use config::Config;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -11,7 +14,6 @@ use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
-    sync::Arc,
 };
 
 mod legacy;
@@ -38,20 +40,12 @@ pub struct Directory {
 }
 
 impl Directory {
-    /// Create a new directory instance from the configuration reference
-    /// provided (or from the base reference when none is provided).
-    pub async fn new_from_config(
-        cfg: Arc<Config>,
-        gh: DynGH,
-        owner: Option<&str>,
-        repo: Option<&str>,
-        ref_: Option<&str>,
-    ) -> Result<Self> {
-        if let Ok(true) = cfg.get_bool("server.config.legacy.enabled") {
-            let legacy_cfg = legacy::Cfg::get(cfg, gh, owner, repo, ref_)
-                .await
-                .context("invalid directory configuration")?;
-            return Ok(Self::from(legacy_cfg));
+    /// Create a new directory instance from the configuration source provided.
+    pub async fn new_from_config(gh: DynGH, legacy: &Legacy, src: &Source) -> Result<Self> {
+        if legacy.enabled {
+            return Ok(Self::from(
+                legacy::Cfg::get(gh, legacy, src).await.context("invalid directory configuration")?,
+            ));
         }
         Err(format_err!(
             "only configuration in legacy format supported at the moment"
@@ -60,6 +54,7 @@ impl Directory {
 
     /// Returns the changes detected between this directory instance and the
     /// new one provided.
+    #[must_use]
     pub fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 
@@ -71,7 +66,7 @@ impl Directory {
         let teams_names_old: HashSet<&TeamName> = teams_old.keys().copied().collect();
         let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
         for team_name in teams_names_old.difference(&teams_names_new) {
-            changes.push(DirectoryChange::TeamRemoved(team_name.to_string()));
+            changes.push(DirectoryChange::TeamRemoved((*team_name).to_string()));
         }
         for team_name in teams_names_new.difference(&teams_names_old) {
             changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
@@ -90,27 +85,27 @@ impl Directory {
             let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
             for user_name in maintainers_old.difference(&maintainers_new) {
                 changes.push(DirectoryChange::TeamMaintainerRemoved(
-                    team_name.to_string(),
-                    user_name.to_string(),
-                ))
+                    (*team_name).to_string(),
+                    (*user_name).to_string(),
+                ));
             }
             for user_name in members_old.difference(&members_new) {
                 changes.push(DirectoryChange::TeamMemberRemoved(
-                    team_name.to_string(),
-                    user_name.to_string(),
-                ))
+                    (*team_name).to_string(),
+                    (*user_name).to_string(),
+                ));
             }
             for user_name in maintainers_new.difference(&maintainers_old) {
                 changes.push(DirectoryChange::TeamMaintainerAdded(
-                    team_name.to_string(),
-                    user_name.to_string(),
-                ))
+                    (*team_name).to_string(),
+                    (*user_name).to_string(),
+                ));
             }
             for user_name in members_new.difference(&members_old) {
                 changes.push(DirectoryChange::TeamMemberAdded(
-                    team_name.to_string(),
-                    user_name.to_string(),
-                ))
+                    (*team_name).to_string(),
+                    (*user_name).to_string(),
+                ));
             }
         }
 
@@ -123,10 +118,10 @@ impl Directory {
         let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
         let mut users_added: Vec<&UserFullName> = vec![];
         for full_name in users_fullnames_old.difference(&users_fullnames_new) {
-            changes.push(DirectoryChange::UserRemoved(full_name.to_string()));
+            changes.push(DirectoryChange::UserRemoved((*full_name).to_string()));
         }
         for full_name in users_fullnames_new.difference(&users_fullnames_old) {
-            changes.push(DirectoryChange::UserAdded(full_name.to_string()));
+            changes.push(DirectoryChange::UserAdded((*full_name).to_string()));
             users_added.push(full_name);
         }
 
@@ -140,7 +135,7 @@ impl Directory {
 
             let user_old = &users_old[full_name];
             if user_new != user_old {
-                changes.push(DirectoryChange::UserUpdated(full_name.to_string()));
+                changes.push(DirectoryChange::UserUpdated((*full_name).to_string()));
             }
         }
 
@@ -150,17 +145,14 @@ impl Directory {
     /// Return a summary of the changes detected in the directory from the base
     /// to the head reference.
     pub async fn get_changes_summary(
-        cfg: Arc<Config>,
         gh: DynGH,
-        head_owner: Option<&str>,
-        head_repo: Option<&str>,
-        head_ref: &str,
+        org: &Organization,
+        head_src: &Source,
     ) -> Result<ChangesSummary> {
-        let directory_head =
-            Directory::new_from_config(cfg.clone(), gh.clone(), head_owner, head_repo, Some(head_ref))
-                .await?;
+        let base_src = Source::from(org);
+        let directory_head = Directory::new_from_config(gh.clone(), &org.legacy, head_src).await?;
         let (changes, base_ref_config_status) =
-            match Directory::new_from_config(cfg, gh, None, None, None).await {
+            match Directory::new_from_config(gh, &org.legacy, &base_src).await {
                 Ok(directory_base) => {
                     let changes = directory_base
                         .diff(&directory_head)
@@ -179,11 +171,13 @@ impl Directory {
     }
 
     /// Get team identified by the team name provided.
+    #[must_use]
     pub fn get_team(&self, team_name: &str) -> Option<&Team> {
         self.teams.iter().find(|t| t.name == team_name)
     }
 
     /// Get user identified by the user name provided.
+    #[must_use]
     pub fn get_user(&self, user_name: &str) -> Option<&User> {
         self.users.iter().find(|u| {
             if let Some(entry_user_name) = &u.user_name {
@@ -296,7 +290,7 @@ pub struct User {
 
 /// Represents a change in the directory.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, clippy::module_name_repetitions)]
 pub enum DirectoryChange {
     TeamAdded(Team),
     TeamRemoved(TeamName),

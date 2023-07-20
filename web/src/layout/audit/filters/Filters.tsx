@@ -6,9 +6,13 @@ import { IoMdCloseCircleOutline } from 'react-icons/io';
 import { FILTERS, SEARCHABLE_FILTERS } from '../../../data';
 import { FilterKind } from '../../../types';
 import styles from './Filters.module.css';
+import OrganizationsSelect from './OrganizationsSelect';
 import TimeRange from './TimeRange';
 
 interface Props {
+  organizations?: string[];
+  selectedOrg?: string | null;
+  onOrganizationChange: (org: string) => void;
   timeRange?: string;
   visibleTitle: boolean;
   activeFilters: {
@@ -37,6 +41,16 @@ const Filters = (props: Props) => {
           )}
         </div>
       )}
+
+      <div className={`fw-bold text-uppercase text-primary ${styles.categoryTitle}`}>
+        <small>Organization</small>
+      </div>
+
+      <OrganizationsSelect
+        selectedOrg={props.selectedOrg}
+        organizations={props.organizations}
+        onOrganizationChange={props.onOrganizationChange}
+      />
 
       <div className={`fw-bold text-uppercase text-primary ${styles.categoryTitle}`}>
         <small>Time range</small>

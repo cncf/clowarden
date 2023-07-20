@@ -11,7 +11,7 @@ import {
   SubNavbar,
   useBreakpointDetect,
 } from 'clo-ui';
-import { isEmpty, isUndefined } from 'lodash';
+import { isEmpty, isNull, isUndefined } from 'lodash';
 import moment from 'moment';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import { AiFillCheckCircle, AiFillCloseCircle } from 'react-icons/ai';
@@ -34,6 +34,10 @@ import Searchbar from './Searchbar';
 interface FiltersProp {
   [key: string]: string[];
 }
+interface ErrorContent {
+  withLegend: boolean;
+  text: string;
+}
 
 const Audit = () => {
   const navigate = useNavigate();
@@ -46,8 +50,10 @@ const Audit = () => {
   const [filters, setFilters] = useState<FiltersProp>({});
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [total, setTotal] = useState<number>(0);
+  const [selectedOrg, setSelectedOrg] = useState<string | undefined | null>();
+  const [organizations, setOrganizations] = useState<string[] | undefined>();
   const [changes, setChanges] = useState<Change[] | null | undefined>();
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<ErrorContent | null>(null);
   const [alternativeView, setAlternativeView] = useState<boolean>(false);
   const limit = PAGINATION_LIMIT;
   const filtersApplied = !isEmpty(filters);
@@ -58,6 +64,7 @@ const Audit = () => {
       pageNumber: pageNumber,
       ts_query_web: text,
       time_range: timeRange,
+      organization: selectedOrg!,
       filters: filters,
     };
   };
@@ -67,6 +74,7 @@ const Audit = () => {
       pathname: '/audit/',
       search: prepareQueryString({
         pageNumber: 1,
+        organization: selectedOrg!,
         ts_query_web: text,
         filters: {},
       }),
@@ -82,6 +90,21 @@ const Audit = () => {
         pageNumber: 1,
       }),
     });
+  };
+
+  const onOrganizationChange = (org: string) => {
+    navigate(
+      {
+        pathname: '/audit/',
+        search: prepareQueryString({
+          ...getCurrentFilters(),
+          organization: org,
+          pageNumber: 1,
+        }),
+      },
+      { replace: true }
+    );
+    setSelectedOrg(org);
   };
 
   const updateCurrentPage = (searchChanges: any) => {
@@ -148,6 +171,7 @@ const Audit = () => {
         const newSearchResults = await API.searchChangesInput({
           ts_query_web: formattedParams.ts_query_web,
           time_range: formattedParams.time_range,
+          organization: selectedOrg!,
           sort_by: sort.by,
           sort_direction: sort.direction,
           filters: formattedParams.filters || {},
@@ -157,8 +181,10 @@ const Audit = () => {
         setTotal(parseInt(newSearchResults['Pagination-Total-Count']));
         setChanges(newSearchResults.items);
       } catch {
-        // TODO - error
-        setApiError('An error occurred searching changes.');
+        setApiError({
+          text: 'Something went wrong fetching the changes in this CLOWarden instance.',
+          withLegend: true,
+        });
         setChanges([]);
         setTotal(0);
       } finally {
@@ -166,8 +192,10 @@ const Audit = () => {
         scrollToTop();
       }
     }
-    searchProjects();
-  }, [searchParams, sort.by, sort.direction]); /* eslint-disable-line react-hooks/exhaustive-deps */
+    if (selectedOrg) {
+      searchProjects();
+    }
+  }, [searchParams, selectedOrg, sort.by, sort.direction]); /* eslint-disable-line react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (!isUndefined(point) && !['xl', 'xxl'].includes(point)) {
@@ -176,6 +204,35 @@ const Audit = () => {
       setAlternativeView(false);
     }
   }, [point]);
+
+  useEffect(() => {
+    async function getOrganizations() {
+      setIsLoading(true);
+      try {
+        const orgs = await API.getOrganizations();
+        if (orgs.length > 0) {
+          setSelectedOrg(searchParams.get('organization') || orgs[0]);
+          setOrganizations(orgs);
+        } else {
+          setApiError({ text: 'There are no organizations registered in this CLOWarden instance.', withLegend: false });
+          setSelectedOrg(null);
+          setOrganizations([]);
+        }
+      } catch {
+        setApiError({
+          text: 'Something went wrong fetching the organizations registered in this CLOWarden instance.',
+          withLegend: true,
+        });
+        setSelectedOrg(null);
+        setOrganizations([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    getOrganizations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
@@ -231,6 +288,9 @@ const Audit = () => {
                     <div role="menu">
                       <Filters
                         device="mobile"
+                        selectedOrg={selectedOrg}
+                        organizations={organizations}
+                        onOrganizationChange={onOrganizationChange}
                         timeRange={timeRange}
                         activeFilters={filters}
                         onChange={onFiltersChange}
@@ -285,6 +345,9 @@ const Audit = () => {
               >
                 <Filters
                   device="desktop"
+                  selectedOrg={selectedOrg}
+                  organizations={organizations}
+                  onOrganizationChange={onOrganizationChange}
                   timeRange={timeRange}
                   activeFilters={filters}
                   onChange={onFiltersChange}
@@ -294,16 +357,18 @@ const Audit = () => {
                 />
               </aside>
               <div className={`d-flex flex-column flex-grow-1 mt-2 mt-md-3 ${styles.contentWrapper}`}>
-                {apiError && (
+                {!isNull(apiError) && (
                   <NoData className={styles.extraMargin}>
-                    <div className="mb-4 mb-lg-5 h2">{apiError}</div>
-                    <p className="h5 mb-0">Please try again later.</p>
+                    <>
+                      <div className="h3">{apiError.text}</div>
+                      {apiError.withLegend && <p className="mt-4 mt-lg-5 h5 mb-0">Please try again later.</p>}
+                    </>
                   </NoData>
                 )}
 
                 {changes && (
                   <>
-                    {isEmpty(changes) ? (
+                    {isEmpty(changes) && !isNull(apiError) ? (
                       <NoData>
                         <div className="h4">
                           We're sorry!

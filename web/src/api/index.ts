@@ -105,6 +105,12 @@ class API_CLASS {
       .catch((error) => Promise.reject(error));
   }
 
+  public getOrganizations(): Promise<string[]> {
+    return this.apiFetch({
+      url: `${this.API_BASE_URL}/organizations`,
+    });
+  }
+
   public searchChangesInput(query: SearchQuery): Promise<{ items: Change[]; 'Pagination-Total-Count': string }> {
     let q: string = `limit=${query.limit}&offset=${query.offset}&sort_by=${
       query.sort_by || DEFAULT_SORT_BY
@@ -112,6 +118,10 @@ class API_CLASS {
 
     const timeRange = calculateTimeRange(query.time_range || DEFAULT_TIME_RANGE);
     q += `&applied_from=${encodeURIComponent(timeRange.from)}&applied_to=${encodeURIComponent(timeRange.to)}`;
+
+    if (query.organization) {
+      q += `&organization=${query.organization}`;
+    }
 
     if (query.ts_query_web) {
       q += `&ts_query_web=${query.ts_query_web}`;

@@ -7,6 +7,7 @@ declare
     v_offset int := coalesce((p_input->>'offset')::int, 0);
     v_sort_by text := coalesce(p_input->>'sort_by', 'date');
     v_sort_direction text := coalesce(p_input->>'sort_direction', 'desc');
+    v_organization text := (p_input->>'organization');
     v_service text[];
     v_kind text[];
     v_applied_from timestamptz := (p_input->>'applied_from');
@@ -58,6 +59,7 @@ begin
             extract(epoch from c.applied_at) as change_applied_at,
             c.error as change_error,
             r.reconciliation_id,
+            r.organization,
             extract(epoch from r.completed_at) as reconciliation_completed_at,
             r.error as reconciliation_error,
             r.pr_number,
@@ -67,6 +69,9 @@ begin
         from change c
         join reconciliation r using (reconciliation_id)
         where
+            case when v_organization is not null then
+            r.organization = v_organization else true end
+        and
             case when v_tsquery_web is not null then
                 v_tsquery_web_with_prefix_matching @@ c.tsdoc
             else true end
@@ -104,6 +109,7 @@ begin
                 'error', change_error,
                 'reconciliation', json_build_object(
                     'reconciliation_id', reconciliation_id,
+                    'organization', organization,
                     'completed_at', reconciliation_completed_at,
                     'error', reconciliation_error,
                     'pr_number', pr_number,

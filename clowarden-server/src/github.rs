@@ -1,7 +1,9 @@
+//! This module defines an abstraction layer over the GitHub API.
+
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::http::HeaderValue;
-use config::Config;
+use clowarden_core::cfg::{GitHubApp, Organization};
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
@@ -21,13 +23,13 @@ use thiserror::Error;
 #[cfg_attr(test, automock)]
 pub(crate) trait GH {
     /// Create a check run.
-    async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()>;
+    async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()>;
 
     /// List pull request files.
-    async fn list_pr_files(&self, pr_number: i64) -> Result<Vec<FileName>>;
+    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>>;
 
     /// Post the comment provided in the repository's pull request given.
-    async fn post_comment(&self, pr_number: i64, body: &str) -> Result<CommentId>;
+    async fn post_comment(&self, ctx: &Ctx, pr_number: i64, body: &str) -> Result<CommentId>;
 }
 
 /// Type alias to represent a GH trait object.
@@ -41,51 +43,45 @@ type FileName = String;
 
 /// GH implementation backed by the GitHub API.
 pub(crate) struct GHApi {
-    client: Client,
-    org: String,
-    repo: String,
+    app_credentials: JWTCredentials,
 }
 
 impl GHApi {
     /// Create a new GHApi instance.
-    pub(crate) fn new(cfg: Arc<Config>) -> Result<Self> {
+    pub(crate) fn new(gh_app: &GitHubApp) -> Result<Self> {
         // Setup GitHub app credentials
-        let app_id = cfg.get_int("server.githubApp.appId").unwrap();
-        let app_private_key =
-            pem::parse(cfg.get_string("server.githubApp.privateKey").unwrap())?.contents().to_owned();
-        let credentials =
-            JWTCredentials::new(app_id, app_private_key).context("error setting up credentials")?;
+        let private_key = pem::parse(&gh_app.private_key)?.contents().to_owned();
+        let app_credentials =
+            JWTCredentials::new(gh_app.app_id, private_key).context("error setting up credentials")?;
 
-        // Setup GitHub API client
-        let inst_id = cfg.get_int("server.githubApp.installationId").unwrap();
-        let tg = InstallationTokenGenerator::new(inst_id, credentials);
-        let client = Client::new(
-            format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-            Credentials::InstallationToken(tg),
-        )?;
+        Ok(Self { app_credentials })
+    }
 
-        Ok(Self {
-            client,
-            org: cfg.get_string("server.config.organization").unwrap(),
-            repo: cfg.get_string("server.config.repository").unwrap(),
-        })
+    /// Setup GitHub API client for the installation id provided.
+    fn setup_client(&self, inst_id: i64) -> Result<Client> {
+        let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        let tg = InstallationTokenGenerator::new(inst_id, self.app_credentials.clone());
+        let credentials = Credentials::InstallationToken(tg);
+
+        Ok(Client::new(user_agent, credentials)?)
     }
 }
 
 #[async_trait]
 impl GH for GHApi {
     /// [GH::create_check_run]
-    async fn create_check_run(&self, body: &ChecksCreateRequest) -> Result<()> {
-        _ = self.client.checks().create(&self.org, &self.repo, body).await?;
+    async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()> {
+        let client = self.setup_client(ctx.inst_id)?;
+        _ = client.checks().create(&ctx.owner, &ctx.repo, body).await?;
         Ok(())
     }
 
     /// [GH::list_pr_files]
-    async fn list_pr_files(&self, pr_number: i64) -> Result<Vec<FileName>> {
-        let files = self
-            .client
+    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>> {
+        let client = self.setup_client(ctx.inst_id)?;
+        let files = client
             .pulls()
-            .list_all_files(&self.org, &self.repo, pr_number)
+            .list_all_files(&ctx.owner, &ctx.repo, pr_number)
             .await?
             .iter()
             .map(|e| e.filename.clone())
@@ -94,11 +90,12 @@ impl GH for GHApi {
     }
 
     /// [GH::post_comment]
-    async fn post_comment(&self, pr_number: i64, body: &str) -> Result<CommentId> {
+    async fn post_comment(&self, ctx: &Ctx, pr_number: i64, body: &str) -> Result<CommentId> {
         let body = &PullsUpdateReviewRequest {
             body: body.to_string(),
         };
-        let comment = self.client.issues().create_comment(&self.org, &self.repo, pr_number, body).await?;
+        let client = self.setup_client(ctx.inst_id)?;
+        let comment = client.issues().create_comment(&ctx.owner, &ctx.repo, pr_number, body).await?;
         Ok(comment.id)
     }
 }
@@ -180,18 +177,35 @@ pub(crate) fn new_checks_create_request(
         actions: vec![],
         completed_at: None,
         conclusion,
-        details_url: "".to_string(),
-        external_id: "".to_string(),
+        details_url: String::new(),
+        external_id: String::new(),
         head_sha,
         name: CHECK_RUN_NAME.to_string(),
         output: Some(ChecksCreateRequestOutput {
             annotations: vec![],
             images: vec![],
             summary: msg.to_string(),
-            text: "".to_string(),
+            text: String::new(),
             title: msg.to_string(),
         }),
         started_at: None,
         status,
+    }
+}
+
+/// Information about the target of a GitHub API request.
+pub struct Ctx {
+    pub inst_id: i64,
+    pub owner: String,
+    pub repo: String,
+}
+
+impl From<&Organization> for Ctx {
+    fn from(org: &Organization) -> Self {
+        Ctx {
+            inst_id: org.installation_id,
+            owner: org.name.clone(),
+            repo: org.repository.clone(),
+        }
     }
 }

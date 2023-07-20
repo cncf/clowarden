@@ -1,15 +1,22 @@
+#![warn(clippy::all, clippy::pedantic)]
+#![allow(clippy::doc_markdown, clippy::similar_names)]
+
 use anyhow::{format_err, Result};
 use clap::{Args, Parser, Subcommand};
 use clowarden_core::{
-    github::GHApi,
+    cfg::Legacy,
+    github::{GHApi, Source},
     multierror,
     services::{
         self,
-        github::{self, service::SvcApi, State},
+        github::{
+            self,
+            service::{Ctx, SvcApi},
+            State,
+        },
         Change,
     },
 };
-use config::Config;
 use std::{env, sync::Arc};
 
 #[derive(Parser)]
@@ -68,7 +75,7 @@ async fn main() -> Result<()> {
 
     // Setup logging
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "clowarden_cli=debug")
+        std::env::set_var("RUST_LOG", "clowarden_cli=debug");
     }
     tracing_subscriber::fmt::init();
 
@@ -91,10 +98,15 @@ async fn main() -> Result<()> {
 async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
     // GitHub
 
+    // Setup services
+    let (gh, svc) = setup_services(github_token);
+    let legacy = setup_legacy(&args);
+    let ctx = setup_context(&args);
+    let src = setup_source(&args);
+
     // Validate configuration and display results
     println!("Validating configuration...");
-    let (cfg, gh, svc) = setup_services(&args, github_token)?;
-    match github::State::new_from_config(cfg, gh, svc, None, None, None).await {
+    match github::State::new_from_config(gh, svc, &legacy, &ctx, &src).await {
         Ok(_) => println!("Configuration is valid!"),
         Err(err) => {
             println!("{}\n", multierror::format_error(&err)?);
@@ -109,21 +121,26 @@ async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
 async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
     // GitHub
 
+    // Setup services
+    let (gh, svc) = setup_services(github_token);
+    let legacy = setup_legacy(&args);
+    let ctx = setup_context(&args);
+    let src = setup_source(&args);
+
     // Get changes from the actual state to the desired state
     println!("Calculating diff between the actual state and the desired state...");
-    let (cfg, gh, svc) = setup_services(&args, github_token)?;
-    let actual_state = State::new_from_service(svc.clone()).await?;
-    let desired_state = State::new_from_config(cfg, gh, svc, None, None, None).await?;
+    let actual_state = State::new_from_service(svc.clone(), &ctx).await?;
+    let desired_state = State::new_from_config(gh, svc, &legacy, &ctx, &src).await?;
     let changes = actual_state.diff(&desired_state);
 
     // Display changes
     println!("\n# GitHub");
     println!("\n## Directory changes\n");
-    for change in changes.directory.into_iter() {
+    for change in changes.directory {
         println!("{}", change.template_format()?);
     }
     println!("\n## Repositories changes\n");
-    for change in changes.repositories.into_iter() {
+    for change in changes.repositories {
         println!("{}", change.template_format()?);
     }
     println!();
@@ -132,22 +149,36 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
 }
 
 /// Helper function to setup some services from the arguments provided.
-fn setup_services(args: &BaseArgs, github_token: String) -> Result<(Arc<Config>, Arc<GHApi>, Arc<SvcApi>)> {
-    let cfg = Config::builder()
-        .set_override("server.config.legacy.enabled", true)?
-        .set_override(
-            "server.config.legacy.sheriff.permissionsPath",
-            args.permissions_file.clone(),
-        )?
-        .set_override_option("server.config.legacy.cncf.peoplePath", args.people_file.clone())?
-        .build()?;
-    let gh = GHApi::new(
-        args.org.clone(),
-        args.repo.clone(),
-        args.branch.clone(),
-        github_token.clone(),
-    )?;
-    let svc = services::github::service::SvcApi::new(args.org.clone(), github_token)?;
+fn setup_services(github_token: String) -> (Arc<GHApi>, Arc<SvcApi>) {
+    let gh = GHApi::new_with_token(github_token.clone());
+    let svc = services::github::service::SvcApi::new_with_token(github_token);
 
-    Ok((Arc::new(cfg), Arc::new(gh), Arc::new(svc)))
+    (Arc::new(gh), Arc::new(svc))
+}
+
+/// Helper function to create a legacy config instance from the arguments.
+fn setup_legacy(args: &BaseArgs) -> Legacy {
+    Legacy {
+        enabled: true,
+        sheriff_permissions_path: args.permissions_file.clone(),
+        cncf_people_path: args.people_file.clone(),
+    }
+}
+
+/// Helper function to create a context instance from the arguments.
+fn setup_context(args: &BaseArgs) -> Ctx {
+    Ctx {
+        inst_id: None,
+        org: args.org.clone(),
+    }
+}
+
+/// Helper function to create a source instance from the arguments.
+fn setup_source(args: &BaseArgs) -> Source {
+    Source {
+        inst_id: None,
+        owner: args.org.clone(),
+        repo: args.repo.clone(),
+        ref_: args.branch.clone(),
+    }
 }

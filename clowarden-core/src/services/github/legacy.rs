@@ -1,9 +1,15 @@
+//! This module defines the types used to represent the legacy configuration
+//! format (Sheriff's). The state module relies on this module to create new
+//! state instances from the legacy configuration.
+
 pub(crate) mod sheriff {
-    use crate::{github::DynGH, multierror::MultiError, services::github::state::Repository};
+    use crate::{
+        github::{DynGH, Source},
+        multierror::MultiError,
+        services::github::state::Repository,
+    };
     use anyhow::{format_err, Context, Error, Result};
-    use config::Config;
     use serde::{Deserialize, Serialize};
-    use std::sync::Arc;
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file
@@ -14,18 +20,9 @@ pub(crate) mod sheriff {
 
     impl Cfg {
         /// Get sheriff configuration.
-        pub(crate) async fn get(
-            cfg: Arc<Config>,
-            gh: DynGH,
-            owner: Option<&str>,
-            repo: Option<&str>,
-            ref_: Option<&str>,
-        ) -> Result<Self> {
-            let path = &cfg.get_string("server.config.legacy.sheriff.permissionsPath").unwrap();
-            let content = gh
-                .get_file_content(path, owner, repo, ref_)
-                .await
-                .context("error getting sheriff permissions file")?;
+        pub(crate) async fn get(gh: DynGH, src: &Source, path: &str) -> Result<Self> {
+            let content =
+                gh.get_file_content(src, path).await.context("error getting sheriff permissions file")?;
             let cfg: Cfg = serde_yaml::from_str(&content)
                 .map_err(Error::new)
                 .context("error parsing permissions file")?;
@@ -43,7 +40,7 @@ pub(crate) mod sheriff {
                 // available, it'll be the repo name. Otherwise we'll use its
                 // index on the list.
                 let id = if repo.name.is_empty() {
-                    format!("{}", i)
+                    format!("{i}")
                 } else {
                     repo.name.clone()
                 };
