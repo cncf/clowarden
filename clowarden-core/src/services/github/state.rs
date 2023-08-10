@@ -159,7 +159,7 @@ impl State {
                     ..Default::default()
                 })
             })
-            .buffer_unordered(4)
+            .buffer_unordered(1)
             .collect::<Vec<Result<Team>>>()
             .await
         {
@@ -211,7 +211,7 @@ impl State {
                     visibility: Some(repo.visibility.into()),
                 })
             })
-            .buffer_unordered(4)
+            .buffer_unordered(1)
             .collect::<Vec<Result<Repository>>>()
             .await
         {
