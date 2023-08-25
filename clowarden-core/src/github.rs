@@ -61,7 +61,9 @@ impl GHApi {
 
         let credentials = if let Some(inst_id) = inst_id {
             let Some(app_creds) = self.app_credentials.clone() else {
-                return Err(format_err!("error setting up github client: app credentials not provided"));
+                return Err(format_err!(
+                    "error setting up github client: app credentials not provided"
+                ));
             };
             Credentials::InstallationToken(InstallationTokenGenerator::new(inst_id, app_creds))
         } else {

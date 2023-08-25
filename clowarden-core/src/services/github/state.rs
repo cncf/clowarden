@@ -722,7 +722,7 @@ impl Change for RepositoryChange {
                 if let Some(teams) = &repo.teams {
                     if !teams.is_empty() {
                         write!(s, "\n\t- Teams")?;
-                        for (team_name, role) in teams.iter() {
+                        for (team_name, role) in teams {
                             write!(s, "\n\t\t- **{team_name}**: *{role}*")?;
                         }
                     }
@@ -730,7 +730,7 @@ impl Change for RepositoryChange {
                 if let Some(collaborators) = &repo.collaborators {
                     if !collaborators.is_empty() {
                         write!(s, "\n\t- Collaborators")?;
-                        for (user_name, role) in collaborators.iter() {
+                        for (user_name, role) in collaborators {
                             write!(s, "\n\t\t- **{user_name}**: *{role}*")?;
                         }
                     }
