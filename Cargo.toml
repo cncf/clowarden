@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "clowarden-cli",
     "clowarden-core",
@@ -16,12 +17,12 @@ anyhow = "1.0.75"
 askama = "0.12.0"
 async-trait = "0.1.73"
 axum = { version = "0.6.20", features = ["macros"] }
-base64 = "0.21.3"
-cached = "0.44.0"
-clap = { version = "4.4.2", features = ["derive"] }
+base64 = "0.21.4"
+cached = { version = "0.46.0", features = ["async"] }
+clap = { version = "4.4.5", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 config = "0.13.3"
-deadpool-postgres = { version = "0.10.5", features = ["serde"] }
+deadpool-postgres = { version = "0.11.0", features = ["serde"] }
 futures = "0.3.28"
 hmac = "0.12.1"
 hex = "0.4.3"
@@ -34,12 +35,12 @@ pem = "3.0.2"
 postgres-openssl = "0.5.0"
 regex = "1.9.5"
 serde = { version = "1.0.188", features = ["derive"] }
-serde_json = "1.0.105"
+serde_json = "1.0.107"
 serde_qs = "0.12.0"
 serde_yaml = "0.9.25"
 sha2 = "0.10.7"
 thiserror = "1.0.48"
-time = { version = "0.3.28", features = [
+time = { version = "0.3.29", features = [
     "formatting",
     "macros",
     "parsing",
