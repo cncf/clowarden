@@ -20,6 +20,9 @@ updates:
     schedule:
       interval: "weekly"
       day: "wednesday"
+    ignore:
+      - dependency-name: "node"
+        versions: ["18-alpine3.17", "19-alpine3.17", "20-alpine3.17"]
   - package-ecosystem: "docker"
     directory: "/database/migrations"
     schedule:
