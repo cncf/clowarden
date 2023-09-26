@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+  - package-ecosystem: "docker"
+    directory: "/clowarden-server"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+  - package-ecosystem: "docker"
+    directory: "/database/migrations"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
