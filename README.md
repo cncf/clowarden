@@ -1,7 +1,5 @@
 # CLOWarden
 
-[![CI](https://github.com/cncf/clowarden/actions/workflows/ci.yml/badge.svg)](https://github.com/cncf/clowarden/actions/workflows/ci.yml)
-
 **CLOWarden** is a tool that manages the access to resources across multiple services with the initial focus on repositories in a GitHub organization.
 CLOWarden allows you to grant access to an individual user or a defined team of users by submitting a PR to a file that defines access rules.
 
@@ -33,7 +31,7 @@ Let's go through a full example to see how this would work in practice.
 
 Our goal in this example will be to create a new team (named `team1`) with one maintainer and one member, as well as a new repository (named `repo1`). We want to give `team1` write permissions on `repo1`, and we'd also like to add a external collaborator, named `collaborator1`, with read permissions.
 
-The first step will be to create a pull request to add the entries below to the configuration files 
+The first step will be to create a pull request to add the entries below to the configuration files
 
 (*This configuration intentionally introduces a typo so we can describe CLOWarden's PR validation checks -team1 is misspelled-*):
 
@@ -50,7 +48,7 @@ teams:
 repositories:
   - name: repo1
     teams:
-      team1: write              # team1 does not exist! The CLOWarden validation check will report an error in a PR as a comment 
+      team1: write              # team1 does not exist! The CLOWarden validation check will report an error in a PR as a comment
     external_collaborators:
       collaborator1: read
     visibility: public
@@ -76,7 +74,7 @@ The pull request creator can now push a fix to address these issues. Once that's
 
 Now CLOWarden is happy with the changes proposed! This time, it also tried to help the maintainer who will approve the changes by describing in the comment what had changed.
 
-Sometimes this may be easy to spot by just looking at a the diff on the PR. But on other occasions, depending on the changes applied, it can get trickier and be error prone, as just a single extra space or tabulation can have unintented consequences. So CLOWarden simplifies this by analyzing the changes itself and displaying them in an easy to read way as a comment on the PR. 
+Sometimes this may be easy to spot by just looking at a the diff on the PR. But on other occasions, depending on the changes applied, it can get trickier and be error prone, as just a single extra space or tabulation can have unintented consequences. So CLOWarden simplifies this by analyzing the changes itself and displaying them in an easy to read way as a comment on the PR.
 
 Outside of the context of a PR it is possible to view an autdit log of the changes made see the [#Audit tool](Audit tool) below
 
