@@ -396,7 +396,7 @@ impl Svc for SvcApi {
             sync_writes = true,
             result = true,
             key = "String",
-            convert = r#"{ format!("") }"#
+            convert = r#"{ format!("{}", org) }"#
         )]
         async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>> {
             let members = client
@@ -416,7 +416,7 @@ impl Svc for SvcApi {
             sync_writes = true,
             result = true,
             key = "String",
-            convert = r#"{ format!("") }"#
+            convert = r#"{ format!("{}", org) }"#
         )]
         async fn inner(client: &Client, org: &str) -> Result<Vec<SimpleUser>> {
             let members = client
