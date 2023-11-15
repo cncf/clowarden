@@ -14,6 +14,7 @@ rust-version = "1.70"
 
 [workspace.dependencies]
 anyhow = "1.0.75"
+as-any = "0.3.1"
 askama = "0.12.0"
 async-trait = "0.1.73"
 axum = { version = "0.6.20", features = ["macros"] }

@@ -3,6 +3,7 @@
 
 use crate::{cfg::Organization, github::Source};
 use anyhow::Result;
+use as_any::AsAny;
 use async_trait::async_trait;
 use std::fmt::Debug;
 
@@ -46,7 +47,7 @@ pub struct ChangeApplied {
 }
 
 /// Trait that defines some operations a Change implementation must support.
-pub trait Change: Debug {
+pub trait Change: AsAny + Debug {
     /// Return some details about the change.
     fn details(&self) -> ChangeDetails;
 

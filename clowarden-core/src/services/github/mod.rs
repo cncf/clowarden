@@ -12,6 +12,7 @@ use crate::{
     services::ChangeApplied,
 };
 use anyhow::{Context, Result};
+use as_any::Downcast;
 use async_trait::async_trait;
 use tracing::debug;
 
@@ -132,13 +133,26 @@ impl ServiceHandler for Handler {
         }
 
         // Apply repositories changes
-        for change in changes.repositories {
+        'changes_repositories: for change in changes.repositories {
             let err = match &change {
                 RepositoryChange::RepositoryAdded(repo) => self.svc.add_repository(&ctx, repo).await.err(),
                 RepositoryChange::TeamAdded(repo_name, team_name, role) => {
                     self.svc.add_repository_team(&ctx, repo_name, team_name, role).await.err()
                 }
                 RepositoryChange::TeamRemoved(repo_name, team_name) => {
+                    // If the team has just been deleted from the directory in
+                    // this reconciliation, there is no need to remove it from
+                    // the repository as this will be done automatically when
+                    // the team is deleted from GitHub
+                    for entry in &changes_applied {
+                        let change = (*entry.change).downcast_ref::<DirectoryChange>();
+                        if let Some(DirectoryChange::TeamRemoved(team_removed_name)) = change {
+                            if team_name == team_removed_name {
+                                continue 'changes_repositories;
+                            }
+                        }
+                    }
+
                     self.svc.remove_repository_team(&ctx, repo_name, team_name).await.err()
                 }
                 RepositoryChange::TeamRoleUpdated(repo_name, team_name, role) => {
