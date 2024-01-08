@@ -141,6 +141,10 @@ label {
   max-width: 130px;
 }
 
+.arrow {
+  margin-top: 7px;
+}
+
 .tooltip {
   font-size: 0.8rem;
 }

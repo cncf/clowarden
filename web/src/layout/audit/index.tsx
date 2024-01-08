@@ -453,6 +453,7 @@ const Audit = () => {
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
                                                       className="position-relative ms-1 ps-1"
+                                                      tooltipArrowClassName={styles.arrow}
                                                       element={<MdInfoOutline />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
@@ -544,6 +545,7 @@ const Audit = () => {
                                                   <div className="d-none d-md-inline-block">
                                                     <ElementWithTooltip
                                                       className="position-relative ms-1 ps-1"
+                                                      tooltipArrowClassName={styles.arrow}
                                                       element={<MdInfoOutline />}
                                                       tooltipWidth={250}
                                                       tooltipMessage={
@@ -736,6 +738,7 @@ const Audit = () => {
                                       {isUndefined(change.error) ? (
                                         <ElementWithTooltip
                                           className="position-relative"
+                                          tooltipArrowClassName={styles.arrow}
                                           tooltipClassName={styles.tooltipWrapper}
                                           element={<AiFillCheckCircle className="text-success" />}
                                           tooltipWidth={230}
