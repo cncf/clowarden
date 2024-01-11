@@ -15,6 +15,7 @@ use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{
+    net::TcpListener,
     signal,
     sync::{broadcast, mpsc},
 };
@@ -97,13 +98,10 @@ async fn main() -> Result<()> {
     let router = handlers::setup_router(&cfg, db.clone(), gh.clone(), jobs_tx)
         .context("error setting up http server router")?;
     let addr: SocketAddr = cfg.get_string("server.addr").unwrap().parse()?;
+    let listener = TcpListener::bind(addr).await?;
     info!("server started");
     info!(%addr, "listening");
-    if let Err(err) = axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-    {
+    if let Err(err) = axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await {
         error!(?err, "server error");
         return Err(err.into());
     }

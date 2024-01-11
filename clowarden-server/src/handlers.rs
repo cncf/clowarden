@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::{format_err, Error, Result};
 use axum::{
-    body::{Bytes, Full},
+    body::{Body, Bytes},
     extract::{FromRef, RawQuery, State},
     http::{
         header::{CACHE_CONTROL, CONTENT_TYPE},
@@ -250,7 +250,7 @@ async fn list_organizations(State(orgs): State<Vec<Organization>>) -> impl IntoR
     Response::builder()
         .header(CACHE_CONTROL, format!("max-age={DEFAULT_API_MAX_AGE}"))
         .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
-        .body(Full::from(orgs_names_json))
+        .body(Body::from(orgs_names_json))
         .map_err(internal_error)
 }
 
@@ -266,7 +266,7 @@ async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> i
         .header(CACHE_CONTROL, format!("max-age={DEFAULT_API_MAX_AGE}"))
         .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
         .header(PAGINATION_TOTAL_COUNT, count.to_string())
-        .body(Full::from(changes))
+        .body(Body::from(changes))
         .map_err(internal_error)
 }
 
