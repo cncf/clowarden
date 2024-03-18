@@ -5,6 +5,7 @@ use anyhow::{format_err, Result};
 use clap::{Args, Parser, Subcommand};
 use clowarden_core::{
     cfg::Legacy,
+    directory,
     github::{GHApi, Source},
     multierror,
     services::{
@@ -17,7 +18,7 @@ use clowarden_core::{
         Change,
     },
 };
-use std::{env, sync::Arc};
+use std::{env, fs::File, path::PathBuf, sync::Arc};
 
 #[derive(Parser)]
 #[command(
@@ -25,7 +26,7 @@ use std::{env, sync::Arc};
     about = "CLOWarden CLI tool
 
 This tool uses the Github API, which requires authentication. Please make sure
-you provide a Github token (with repo and read:org scopes) by setting the
+you provide a GitHub token (with repo and read:org scopes) by setting the
 GITHUB_TOKEN environment variable."
 )]
 struct Cli {
@@ -35,12 +36,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Validate the configuration in the repository provided.
-    Validate(BaseArgs),
-
     /// Display changes between the actual state (as defined in the services)
     /// and the desired state (as defined in the configuration).
     Diff(BaseArgs),
+
+    /// Generate configuration file from the actual state (experimental).
+    Generate(GenerateArgs),
+
+    /// Validate the configuration in the repository provided.
+    Validate(BaseArgs),
 }
 
 #[derive(Args)]
@@ -66,6 +70,17 @@ struct BaseArgs {
     people_file: Option<String>,
 }
 
+#[derive(Args)]
+struct GenerateArgs {
+    /// GitHub organization.
+    #[arg(long)]
+    org: String,
+
+    /// Output file.
+    #[arg(long)]
+    output_file: PathBuf,
+}
+
 /// Environment variable containing Github token.
 const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 
@@ -87,31 +102,9 @@ async fn main() -> Result<()> {
 
     // Run command
     match cli.command {
-        Command::Validate(args) => validate(args, github_token).await?,
         Command::Diff(args) => diff(args, github_token).await?,
-    }
-
-    Ok(())
-}
-
-/// Validate configuration.
-async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
-    // GitHub
-
-    // Setup services
-    let (gh, svc) = setup_services(github_token);
-    let legacy = setup_legacy(&args);
-    let ctx = setup_context(&args);
-    let src = setup_source(&args);
-
-    // Validate configuration and display results
-    println!("Validating configuration...");
-    match github::State::new_from_config(gh, svc, &legacy, &ctx, &src).await {
-        Ok(_) => println!("Configuration is valid!"),
-        Err(err) => {
-            println!("{}\n", multierror::format_error(&err)?);
-            return Err(format_err!("Invalid configuration"));
-        }
+        Command::Validate(args) => validate(args, github_token).await?,
+        Command::Generate(args) => generate(args, github_token).await?,
     }
 
     Ok(())
@@ -124,7 +117,7 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
     // Setup services
     let (gh, svc) = setup_services(github_token);
     let legacy = setup_legacy(&args);
-    let ctx = setup_context(&args);
+    let ctx = setup_context(&args.org);
     let src = setup_source(&args);
 
     // Get changes from the actual state to the desired state
@@ -148,6 +141,57 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
     Ok(())
 }
 
+/// Generate a configuration file from the actual state of the services.
+///
+/// NOTE: at the moment the configuration generated uses the legacy format for
+/// backwards compatibility reasons.
+async fn generate(args: GenerateArgs, github_token: String) -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct LegacyCfg {
+        teams: Vec<directory::legacy::sheriff::Team>,
+        repositories: Vec<github::state::Repository>,
+    }
+
+    println!("Getting actual state from GitHub...");
+    let (_, svc) = setup_services(github_token);
+    let ctx = setup_context(&args.org);
+    let actual_state = github::State::new_from_service(svc.clone(), &ctx).await?;
+
+    println!("Generating configuration file and writing it to the output file provided...");
+    let cfg = LegacyCfg {
+        teams: actual_state.directory.teams.into_iter().map(Into::into).collect(),
+        repositories: actual_state.repositories,
+    };
+    let file = File::create(&args.output_file)?;
+    serde_yaml::to_writer(file, &cfg)?;
+
+    println!("done!");
+    Ok(())
+}
+
+/// Validate configuration.
+async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
+    // GitHub
+
+    // Setup services
+    let (gh, svc) = setup_services(github_token);
+    let legacy = setup_legacy(&args);
+    let ctx = setup_context(&args.org);
+    let src = setup_source(&args);
+
+    // Validate configuration and display results
+    println!("Validating configuration...");
+    match github::State::new_from_config(gh, svc, &legacy, &ctx, &src).await {
+        Ok(_) => println!("Configuration is valid!"),
+        Err(err) => {
+            println!("{}\n", multierror::format_error(&err)?);
+            return Err(format_err!("Invalid configuration"));
+        }
+    }
+
+    Ok(())
+}
+
 /// Helper function to setup some services from the arguments provided.
 fn setup_services(github_token: String) -> (Arc<GHApi>, Arc<SvcApi>) {
     let gh = GHApi::new_with_token(github_token.clone());
@@ -165,11 +209,11 @@ fn setup_legacy(args: &BaseArgs) -> Legacy {
     }
 }
 
-/// Helper function to create a context instance from the arguments.
-fn setup_context(args: &BaseArgs) -> Ctx {
+/// Helper function to create a context instance for the organization provided.
+fn setup_context(org: &str) -> Ctx {
     Ctx {
         inst_id: None,
-        org: args.org.clone(),
+        org: org.to_string(),
     }
 }
 

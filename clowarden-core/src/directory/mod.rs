@@ -16,7 +16,7 @@ use std::{
     fmt::Write,
 };
 
-mod legacy;
+pub mod legacy;
 
 lazy_static! {
     static ref GITHUB_URL: Regex =
@@ -192,17 +192,7 @@ impl From<legacy::Cfg> for Directory {
     /// Create a new directory instance from the legacy configuration.
     fn from(cfg: legacy::Cfg) -> Self {
         // Teams
-        let teams = cfg
-            .sheriff
-            .teams
-            .into_iter()
-            .map(|t| Team {
-                name: t.name,
-                maintainers: t.maintainers.unwrap_or_default(),
-                members: t.members.unwrap_or_default(),
-                ..Default::default()
-            })
-            .collect();
+        let teams = cfg.sheriff.teams.into_iter().map(Into::into).collect();
 
         // Users
         let users = if let Some(cncf) = cfg.cncf {
@@ -264,6 +254,17 @@ pub struct Team {
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub annotations: HashMap<String, String>,
+}
+
+impl From<legacy::sheriff::Team> for Team {
+    fn from(team: legacy::sheriff::Team) -> Self {
+        Team {
+            name: team.name.clone(),
+            maintainers: team.maintainers.clone().unwrap_or_default(),
+            members: team.members.clone().unwrap_or_default(),
+            ..Default::default()
+        }
+    }
 }
 
 /// User profile.

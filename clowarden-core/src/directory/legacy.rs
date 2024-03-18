@@ -50,7 +50,7 @@ impl Cfg {
     }
 }
 
-pub(crate) mod sheriff {
+pub mod sheriff {
     use crate::{
         directory::{TeamName, UserName},
         github::{DynGH, Source},
@@ -185,11 +185,28 @@ pub(crate) mod sheriff {
 
     /// Team configuration.
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-    pub(crate) struct Team {
+    pub struct Team {
         pub name: String,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub maintainers: Option<Vec<UserName>>,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub members: Option<Vec<UserName>>,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub formation: Option<Vec<TeamName>>,
+    }
+
+    impl From<crate::directory::Team> for Team {
+        fn from(team: crate::directory::Team) -> Self {
+            Team {
+                name: team.name,
+                maintainers: Some(team.maintainers),
+                members: Some(team.members),
+                ..Default::default()
+            }
+        }
     }
 }
 
