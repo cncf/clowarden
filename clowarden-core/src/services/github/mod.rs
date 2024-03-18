@@ -18,7 +18,7 @@ use tracing::debug;
 
 mod legacy;
 pub mod service;
-mod state;
+pub mod state;
 pub use state::State;
 
 /// GitHub's service name.

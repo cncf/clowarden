@@ -448,6 +448,8 @@ dependencies = [
  "clap",
  "clowarden-core",
  "config",
+ "serde",
+ "serde_yaml",
  "tokio",
  "tracing",
  "tracing-subscriber",
