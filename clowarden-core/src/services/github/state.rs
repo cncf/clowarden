@@ -18,16 +18,25 @@ use futures::{
     future,
     stream::{self, StreamExt},
 };
+use lazy_static::lazy_static;
 use octorust::types::{
     OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
     TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
 };
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
 };
+
+lazy_static! {
+    /// Regular expression to match temporary private forks created for GitHub
+    /// security advisories.
+    static ref GHSA_TEMP_FORK: Regex =
+        Regex::new("^(.+)-ghsa(-[23456789cfghjmpqrvwx]{4}){3}$").expect("expr in GHSA_TEMP_FORK to be valid");
+}
 
 /// Type alias to represent a repository name.
 pub type RepositoryName = String;
@@ -173,17 +182,22 @@ impl State {
         let org_admins: Vec<UserName> =
             svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
         for repo in stream::iter(svc.list_repositories(ctx).await?)
-            .filter(|repo| future::ready(!repo.archived))
+            .filter(|repo| future::ready(!repo.archived && !GHSA_TEMP_FORK.is_match(&repo.name)))
             .map(|repo| async {
                 // Get collaborators (including pending invitations and excluding org admins)
                 let mut collaborators: HashMap<UserName, Role> = svc
                     .list_repository_collaborators(ctx, &repo.name)
-                    .await?
+                    .await
+                    .context(format!("error listing repository {} collaborators", &repo.name))?
                     .into_iter()
                     .filter(|c| !org_admins.contains(&c.login))
                     .map(|c| (c.login, c.permissions.into()))
                     .collect();
-                for invitation in svc.list_repository_invitations(ctx, &repo.name).await? {
+                for invitation in svc
+                    .list_repository_invitations(ctx, &repo.name)
+                    .await
+                    .context(format!("error listing repository {} invitations", &repo.name))?
+                {
                     if let Some(invitee) = invitation.invitee {
                         collaborators.insert(invitee.login, invitation.permissions.into());
                     }
@@ -197,7 +211,8 @@ impl State {
                 // Get teams
                 let teams: HashMap<TeamName, Role> = svc
                     .list_repository_teams(ctx, &repo.name)
-                    .await?
+                    .await
+                    .context(format!("error listing repository {} teams", &repo.name))?
                     .into_iter()
                     .map(|t| (t.name, t.permissions.into()))
                     .collect();
