@@ -214,7 +214,7 @@ impl State {
                     .await
                     .context(format!("error listing repository {} teams", &repo.name))?
                     .into_iter()
-                    .map(|t| (t.name, t.permissions.into()))
+                    .map(|t| (t.slug, t.permissions.into()))
                     .collect();
                 let teams = if teams.is_empty() { None } else { Some(teams) };
 
