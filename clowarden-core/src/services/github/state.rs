@@ -27,7 +27,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     fmt::{self, Write},
 };
 
@@ -158,6 +158,8 @@ impl State {
                         }
                     }
                 }
+                maintainers.sort();
+                members.sort();
 
                 // Setup team from info collected
                 Ok(Team {
@@ -177,6 +179,7 @@ impl State {
                 Err(err) => return Err(err.context("error getting team info")),
             }
         }
+        state.directory.teams.sort_by(|a, b| a.name.cmp(&b.name));
 
         // Repositories
         let org_admins: Vec<UserName> =
@@ -185,7 +188,7 @@ impl State {
             .filter(|repo| future::ready(!repo.archived && !GHSA_TEMP_FORK.is_match(&repo.name)))
             .map(|repo| async {
                 // Get collaborators (including pending invitations and excluding org admins)
-                let mut collaborators: HashMap<UserName, Role> = svc
+                let mut collaborators: BTreeMap<UserName, Role> = svc
                     .list_repository_collaborators(ctx, &repo.name)
                     .await
                     .context(format!("error listing repository {} collaborators", &repo.name))?
@@ -209,7 +212,7 @@ impl State {
                 };
 
                 // Get teams
-                let teams: HashMap<TeamName, Role> = svc
+                let teams: BTreeMap<TeamName, Role> = svc
                     .list_repository_teams(ctx, &repo.name)
                     .await
                     .context(format!("error listing repository {} teams", &repo.name))?
@@ -235,6 +238,7 @@ impl State {
                 Err(err) => return Err(err.context("error getting repository info")),
             }
         }
+        state.repositories.sort_by(|a, b| a.name.cmp(&b.name));
 
         Ok(state)
     }
@@ -355,11 +359,11 @@ impl State {
         let mut changes = vec![];
 
         // Repositories
-        let repos_old: HashMap<&RepositoryName, &Repository> = old.iter().map(|r| (&r.name, r)).collect();
-        let repos_new: HashMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
+        let repos_old: BTreeMap<&RepositoryName, &Repository> = old.iter().map(|r| (&r.name, r)).collect();
+        let repos_new: BTreeMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
 
         // Helper closures to get the team's/collaborator's role
-        let team_role = |collection: &HashMap<&RepositoryName, &Repository>,
+        let team_role = |collection: &BTreeMap<&RepositoryName, &Repository>,
                          repo_name: &RepositoryName,
                          team_name: &TeamName| {
             if let Some(teams) = collection[repo_name].teams.as_ref() {
@@ -367,7 +371,7 @@ impl State {
             }
             Role::default()
         };
-        let user_role = |collection: &HashMap<&RepositoryName, &Repository>,
+        let user_role = |collection: &BTreeMap<&RepositoryName, &Repository>,
                          repo_name: &RepositoryName,
                          user_name: &UserName| {
             if let Some(collaborators) = collection[repo_name].collaborators.as_ref() {
@@ -488,10 +492,10 @@ pub struct Repository {
     pub name: String,
 
     #[serde(alias = "external_collaborators", skip_serializing_if = "Option::is_none")]
-    pub collaborators: Option<HashMap<UserName, Role>>,
+    pub collaborators: Option<BTreeMap<UserName, Role>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub teams: Option<HashMap<TeamName, Role>>,
+    pub teams: Option<BTreeMap<TeamName, Role>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visibility: Option<Visibility>,
@@ -848,7 +852,7 @@ mod tests {
             ..Default::default()
         };
         let repo1_adding_team = Repository {
-            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            teams: Some(BTreeMap::from([("team1".to_string(), Role::Write)])),
             ..repo1.clone()
         };
         let state1 = State {
@@ -876,7 +880,7 @@ mod tests {
     fn diff_repository_team_removed() {
         let repo1 = Repository {
             name: "repo1".to_string(),
-            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            teams: Some(BTreeMap::from([("team1".to_string(), Role::Write)])),
             ..Default::default()
         };
         let repo1_removing_team = Repository {
@@ -907,11 +911,11 @@ mod tests {
     fn diff_repository_team_role_updated() {
         let repo1 = Repository {
             name: "repo1".to_string(),
-            teams: Some(HashMap::from([("team1".to_string(), Role::Write)])),
+            teams: Some(BTreeMap::from([("team1".to_string(), Role::Write)])),
             ..Default::default()
         };
         let repo1_updating_team_role = Repository {
-            teams: Some(HashMap::from([("team1".to_string(), Role::Read)])),
+            teams: Some(BTreeMap::from([("team1".to_string(), Role::Read)])),
             ..repo1.clone()
         };
         let state1 = State {
@@ -942,7 +946,7 @@ mod tests {
             ..Default::default()
         };
         let repo1_adding_collaborator = Repository {
-            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            collaborators: Some(BTreeMap::from([("user1".to_string(), Role::Write)])),
             ..repo1.clone()
         };
         let state1 = State {
@@ -970,7 +974,7 @@ mod tests {
     fn diff_repository_collaborator_removed() {
         let repo1 = Repository {
             name: "repo1".to_string(),
-            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            collaborators: Some(BTreeMap::from([("user1".to_string(), Role::Write)])),
             ..Default::default()
         };
         let repo1_removing_collaborator = Repository {
@@ -1001,11 +1005,11 @@ mod tests {
     fn diff_repository_collaborator_role_updated() {
         let repo1 = Repository {
             name: "repo1".to_string(),
-            collaborators: Some(HashMap::from([("user1".to_string(), Role::Write)])),
+            collaborators: Some(BTreeMap::from([("user1".to_string(), Role::Write)])),
             ..Default::default()
         };
         let repo1_updating_collaborator_role = Repository {
-            collaborators: Some(HashMap::from([("user1".to_string(), Role::Read)])),
+            collaborators: Some(BTreeMap::from([("user1".to_string(), Role::Read)])),
             ..repo1.clone()
         };
         let state1 = State {
@@ -1064,7 +1068,7 @@ mod tests {
     fn diff_multiple_changes() {
         let repo1 = Repository {
             name: "repo1".to_string(),
-            teams: Some(HashMap::from([
+            teams: Some(BTreeMap::from([
                 ("team1".to_string(), Role::Write),
                 ("team2".to_string(), Role::Write),
             ])),
@@ -1072,7 +1076,7 @@ mod tests {
             ..Default::default()
         };
         let repo1_updated = Repository {
-            teams: Some(HashMap::from([
+            teams: Some(BTreeMap::from([
                 ("team1".to_string(), Role::Write),
                 ("team3".to_string(), Role::Write),
             ])),
