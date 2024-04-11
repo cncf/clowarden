@@ -4,6 +4,7 @@
 
 pub(crate) mod sheriff {
     use crate::{
+        directory::legacy::VALID_TEAM_NAME,
         github::{DynGH, Source},
         multierror::MultiError,
         services::github::state::Repository,
@@ -60,6 +61,17 @@ pub(crate) mod sheriff {
                         continue;
                     }
                     repos_seen.push(&repo.name);
+                }
+
+                // Teams names must be valid
+                if let Some(teams) = &repo.teams {
+                    for team_name in teams.keys() {
+                        if !VALID_TEAM_NAME.is_match(team_name) {
+                            merr.push(format_err!(
+                                "repo[{id}]: team[{team_name}] name must be lowercase alphanumeric with dashes (team slug)",
+                            ));
+                        }
+                    }
                 }
             }
 

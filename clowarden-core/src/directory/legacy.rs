@@ -8,7 +8,14 @@ use crate::{
     multierror::MultiError,
 };
 use anyhow::Result;
+use lazy_static::lazy_static;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+
+lazy_static! {
+    pub(crate) static ref VALID_TEAM_NAME: Regex =
+        Regex::new(r"^[a-z0-9\-]+$").expect("expr in VALID_TEAM_NAME to be valid");
+}
 
 /// Legacy configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -51,6 +58,7 @@ impl Cfg {
 }
 
 pub mod sheriff {
+    use super::VALID_TEAM_NAME;
     use crate::{
         directory::{TeamName, UserName},
         github::{DynGH, Source},
@@ -147,6 +155,13 @@ pub mod sheriff {
                 // Name must be provided
                 if team.name.is_empty() {
                     merr.push(format_err!("team[{id}: name must be provided"));
+                }
+
+                // Name must be valid
+                if !VALID_TEAM_NAME.is_match(&team.name) {
+                    merr.push(format_err!(
+                        "team[{id}]: name must be lowercase alphanumeric with dashes (team slug)"
+                    ));
                 }
 
                 // No duplicate config per team
