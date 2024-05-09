@@ -105,14 +105,14 @@ pub mod sheriff {
                                 maintainers
                                     .extend_from_slice(source_team.maintainers.as_ref().unwrap_or(&vec![]));
                             } else {
-                                team.maintainers = source_team.maintainers.clone();
+                                team.maintainers.clone_from(&source_team.maintainers);
                             }
 
                             // Members
                             if let Some(members) = team.members.as_mut() {
                                 members.extend_from_slice(source_team.members.as_ref().unwrap_or(&vec![]));
                             } else {
-                                team.members = source_team.members.clone();
+                                team.members.clone_from(&source_team.members);
                             }
                         }
                     }
