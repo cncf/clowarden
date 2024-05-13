@@ -6,8 +6,8 @@ export interface TimeRangeData {
 }
 
 const calculateTimeRange = (timeRange: string): TimeRangeData => {
-  let amount = timeRange.substring(0, timeRange.length - 1);
-  let unit = timeRange.slice(-1);
+  const amount = timeRange.substring(0, timeRange.length - 1);
+  const unit = timeRange.slice(-1);
 
   return {
     from: moment()
