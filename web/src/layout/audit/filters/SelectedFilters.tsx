@@ -26,7 +26,7 @@ const SelectedFilters = (props: Props) => {
   };
 
   const getTimeRangeName = (timeRange: string): string | null => {
-    let selectedTimeRange = DATE_RANGE.find((d: Option) => d.value === timeRange);
+    const selectedTimeRange = DATE_RANGE.find((d: Option) => d.value === timeRange);
     if (selectedTimeRange) {
       return selectedTimeRange.label;
     }

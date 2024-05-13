@@ -23,7 +23,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import API from '../../api';
 import { AppContext, updateSort } from '../../context/AppContextProvider';
 import { PAGINATION_LIMIT, SORT_OPTIONS } from '../../data';
-import { Change, ChangeKind, SearchFiltersURL, SortBy, SortDirection } from '../../types';
+import { Change, ChangeKind, SearchFiltersURL, SortBy, SortDirection, SortOption } from '../../types';
 import buildSearchParams from '../../utils/buildSearchParams';
 import prepareQueryString from '../../utils/prepareQueryString';
 import styles from './Audit.module.css';
@@ -107,7 +107,7 @@ const Audit = () => {
     setSelectedOrg(org);
   };
 
-  const updateCurrentPage = (searchChanges: any) => {
+  const updateCurrentPage = (searchChanges: object) => {
     navigate({
       pathname: '/audit/',
       search: prepareQueryString({
@@ -195,7 +195,7 @@ const Audit = () => {
     if (selectedOrg) {
       searchProjects();
     }
-  }, [searchParams, selectedOrg, sort.by, sort.direction]); /* eslint-disable-line react-hooks/exhaustive-deps */
+  }, [searchParams, selectedOrg, sort.by, sort.direction]);
 
   useEffect(() => {
     if (!isUndefined(point) && !['xl', 'xxl'].includes(point)) {
@@ -231,7 +231,6 @@ const Audit = () => {
     }
 
     getOrganizations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -314,7 +313,7 @@ const Audit = () => {
                     <span className="ps-1"> changes </span>
                   </div>
                   <SortOptions
-                    options={SORT_OPTIONS as any[]}
+                    options={SORT_OPTIONS as SortOption[]}
                     by={sort.by}
                     direction={sort.direction}
                     width={180}

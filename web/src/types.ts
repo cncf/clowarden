@@ -96,6 +96,7 @@ export interface Change {
   service: string;
   kind: string;
   extra: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [key: string]: any;
   };
   applied_at: number;
