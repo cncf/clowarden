@@ -1,0 +1,45 @@
+apiVersion: v1
+entries:
+  clowarden:
+  - annotations:
+      artifacthub.io/category: skip-prediction
+      artifacthub.io/changes: |
+        - kind: added
+          description: Initial release
+      artifacthub.io/images: |
+        - name: dbmigrator
+          image: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
+        - name: server
+          image: public.ecr.aws/g6m3a0y9/clowarden-server
+      artifacthub.io/links: |
+        - name: source
+          url: https://github.com/cncf/clowarden
+        - name: support
+          url: https://github.com/cncf/clowarden/issues
+    apiVersion: v2
+    appVersion: 0.1.0
+    created: "2024-05-14T15:25:10.912579573Z"
+    dependencies:
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: https://charts.helm.sh/stable
+      version: 8.2.1
+    description: CLOWarden is a tool that manages access to resources across multiple
+      services
+    digest: 34818580371c1ae9c9c9714f5b71633eb08087065ea4e50ff59f5e4881529be9
+    home: https://clowarden.io
+    icon: https://raw.githubusercontent.com/cncf/clowarden/main/docs/logo/logo.png
+    keywords:
+    - clowarden
+    kubeVersion: '>= 1.19.0-0'
+    maintainers:
+    - email: tegioz@icloud.com
+      name: Sergio
+    - email: cynthiasg@icloud.com
+      name: Cintia
+    name: clowarden
+    type: application
+    urls:
+    - https://github.com/cncf/clowarden/releases/download/clowarden-chart-0.1.0/clowarden-0.1.0.tgz
+    version: 0.1.0
+generated: "2024-05-14T15:25:10.912587227Z"
