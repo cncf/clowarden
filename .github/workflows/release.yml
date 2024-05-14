@@ -33,6 +33,7 @@ jobs:
       - name: Build and push clowarden-server image
         run: |
           docker build \
+            -f clowarden-server/Dockerfile \
             -t public.ecr.aws/g6m3a0y9/clowarden-server:${{steps.extract_tag_name.outputs.tag}} \
             -t public.ecr.aws/g6m3a0y9/clowarden-server:latest \
           .
