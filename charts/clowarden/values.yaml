@@ -36,7 +36,7 @@ dbmigrator:
   job:
     image:
       # Database migrator image repository (without the tag)
-      repository: clowarden-dbmigrator
+      repository: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
 
 # CLOWarden server configuration
 server:
@@ -59,7 +59,7 @@ server:
   githubApp:
     # GitHub application ID
     appId: null
-    # GitHub application private key path
+    # GitHub application private key
     privateKey: null
     # GitHub application webhook secret
     webhookSecret: null
@@ -79,9 +79,9 @@ server:
 
   # Deployment configuration
   deploy:
-    replicaCount: 1
+    replicaCount: 1 # Do not increase
     image:
-      repository: clowarden-server
+      repository: public.ecr.aws/g6m3a0y9/clowarden-server
     resources: {}
 
 # Services CLOWarden will manage
@@ -102,7 +102,7 @@ organizations:
   #   branch: main
   #   # Legacy mode configuration
   #   legacy:
-  #     # Whether legacy mode is enabled or not
+  #     # Whether legacy mode is enabled or not (must be at the moment)
   #     enabled: true
   #     # Path of the Sheriff's permissions file
   #     sheriffPermissionsPath: config.yaml

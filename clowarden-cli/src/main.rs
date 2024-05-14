@@ -25,7 +25,7 @@ use std::{env, fs::File, path::PathBuf, sync::Arc};
     version,
     about = "CLOWarden CLI tool
 
-This tool uses the Github API, which requires authentication. Please make sure
+This tool uses the GitHub API, which requires authentication. Please make sure
 you provide a GitHub token (with repo and read:org scopes) by setting the
 GITHUB_TOKEN environment variable."
 )]
