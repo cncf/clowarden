@@ -79,7 +79,7 @@ server:
 
   # Deployment configuration
   deploy:
-    replicaCount: 1 # Do not increase
+    replicaCount: 1  # Do not increase
     image:
       repository: public.ecr.aws/g6m3a0y9/clowarden-server
     resources: {}
