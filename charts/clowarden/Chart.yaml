@@ -2,8 +2,8 @@ apiVersion: v2
 name: clowarden
 description: CLOWarden is a tool that manages access to resources across multiple services
 type: application
-version: 0.1.1
-appVersion: 0.1.0
+version: 0.1.2
+appVersion: 0.1.1
 kubeVersion: ">= 1.19.0-0"
 home: https://clowarden.io
 icon: https://raw.githubusercontent.com/cncf/clowarden/main/docs/logo/logo.png
@@ -22,13 +22,13 @@ dependencies:
 annotations:
   artifacthub.io/category: skip-prediction
   artifacthub.io/changes: |
-    - kind: added
-      description: Initial release
+    - kind: fixed
+      description: Regression building audit UI
   artifacthub.io/images: |
     - name: dbmigrator
-      image: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
+      image: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator:v0.1.1
     - name: server
-      image: public.ecr.aws/g6m3a0y9/clowarden-server
+      image: public.ecr.aws/g6m3a0y9/clowarden-server:v0.1.1
   artifacthub.io/links: |
     - name: source
       url: https://github.com/cncf/clowarden
