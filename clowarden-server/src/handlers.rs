@@ -35,6 +35,9 @@ use tower_http::{
 };
 use tracing::{error, instrument, trace};
 
+/// Audit index HTML document cache duration.
+const AUDIT_INDEX_CACHE_MAX_AGE: usize = 300;
+
 /// Default cache duration for some API endpoints.
 const DEFAULT_API_MAX_AGE: usize = 300;
 
@@ -73,8 +76,12 @@ pub(crate) fn setup_router(
     let audit_path = Path::new(&static_path).join("audit");
     let audit_index_path = audit_path.join("index.html");
 
-    // Setup webhook secret
-    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret").unwrap();
+    // Setup audit index handler
+    let audit_index = SetResponseHeader::overriding(
+        ServeFile::new(audit_index_path),
+        CACHE_CONTROL,
+        HeaderValue::try_from(format!("max-age={AUDIT_INDEX_CACHE_MAX_AGE}"))?,
+    );
 
     // Setup audit router
     let mut audit_router = Router::new()
@@ -88,8 +95,8 @@ pub(crate) fn setup_router(
                 HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
             )),
         )
-        .route("/", get_service(ServeFile::new(&audit_index_path)))
-        .fallback_service(get_service(ServeFile::new(&audit_index_path)));
+        .route("/", get_service(audit_index.clone()))
+        .fallback_service(get_service(audit_index));
 
     // Setup basic auth
     if cfg.get_bool("server.basicAuth.enabled").unwrap_or(false) {
@@ -100,6 +107,7 @@ pub(crate) fn setup_router(
 
     // Setup main router
     let orgs = cfg.get("organizations")?;
+    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret").unwrap();
     let router = Router::new()
         .route("/webhook/github", post(event))
         .route("/health-check", get(health_check))
