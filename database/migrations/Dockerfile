@@ -4,7 +4,7 @@ RUN apk --no-cache add git
 RUN go install github.com/jackc/tern@latest
 
 # Build final image
-FROM alpine:3.19.1
+FROM alpine:3.20.1
 RUN addgroup -S clowarden && adduser -S clowarden -G clowarden
 USER clowarden
 WORKDIR /home/clowarden
