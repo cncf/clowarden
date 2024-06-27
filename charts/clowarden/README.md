@@ -51,6 +51,9 @@ server:
 
     # GitHub application webhook secret
     webhookSecret: "your-webhook-secret"
+
+    # GitHub application webhook secret fallback (handy for webhook secret rotation)
+    webhookSecretFallback: "old-webhook-secret"
 ```
 
 In addition to the GitHub application configuration, you can also add the organizations you'd like to use CLOWarden with at this point:

@@ -63,6 +63,8 @@ server:
     privateKey: null
     # GitHub application webhook secret
     webhookSecret: null
+    # GitHub application webhook secret fallback (handy for webhook secret rotation)
+    webhookSecretFallback: null
 
   # Ingress configuration
   ingress:

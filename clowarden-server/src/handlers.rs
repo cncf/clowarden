@@ -19,7 +19,7 @@ use axum::{
     Router,
 };
 use clowarden_core::cfg::Organization;
-use config::Config;
+use config::{Config, ConfigError};
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
@@ -59,6 +59,7 @@ struct RouterState {
     db: DynDB,
     gh: DynGH,
     webhook_secret: String,
+    webhook_secret_fallback: Option<String>,
     jobs_tx: mpsc::UnboundedSender<Job>,
     orgs: Vec<Organization>,
 }
@@ -71,7 +72,7 @@ pub(crate) fn setup_router(
     jobs_tx: mpsc::UnboundedSender<Job>,
 ) -> Result<Router> {
     // Setup some paths
-    let static_path = cfg.get_string("server.staticPath").unwrap();
+    let static_path = cfg.get_string("server.staticPath")?;
     let root_index_path = Path::new(&static_path).join("index.html");
     let audit_path = Path::new(&static_path).join("audit");
     let audit_index_path = audit_path.join("index.html");
@@ -107,7 +108,12 @@ pub(crate) fn setup_router(
 
     // Setup main router
     let orgs = cfg.get("organizations")?;
-    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret").unwrap();
+    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret")?;
+    let webhook_secret_fallback = match cfg.get_string("server.githubApp.webhookSecretFallback") {
+        Ok(secret) => Some(secret),
+        Err(ConfigError::NotFound(_)) => None,
+        Err(err) => return Err(err.into()),
+    };
     let router = Router::new()
         .route("/webhook/github", post(event))
         .route("/health-check", get(health_check))
@@ -128,6 +134,7 @@ pub(crate) fn setup_router(
             db,
             gh,
             webhook_secret,
+            webhook_secret_fallback,
             jobs_tx,
             orgs,
         });
@@ -147,15 +154,19 @@ async fn health_check() -> impl IntoResponse {
 async fn event(
     State(gh): State<DynGH>,
     State(webhook_secret): State<String>,
+    State(webhook_secret_fallback): State<Option<String>>,
     State(jobs_tx): State<mpsc::UnboundedSender<Job>>,
     State(orgs): State<Vec<Organization>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
     // Verify payload signature
+    let webhook_secret = webhook_secret.as_bytes();
+    let webhook_secret_fallback = webhook_secret_fallback.as_ref().map(String::as_bytes);
     if verify_signature(
         headers.get(GITHUB_SIGNATURE_HEADER),
-        webhook_secret.as_bytes(),
+        webhook_secret,
+        webhook_secret_fallback,
         &body[..],
     )
     .is_err()
@@ -279,13 +290,30 @@ async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> i
 }
 
 /// Verify that the signature provided is valid.
-fn verify_signature(signature: Option<&HeaderValue>, secret: &[u8], body: &[u8]) -> Result<()> {
+fn verify_signature(
+    signature: Option<&HeaderValue>,
+    secret: &[u8],
+    secret_fallback: Option<&[u8]>,
+    body: &[u8],
+) -> Result<()> {
     if let Some(signature) = signature
         .and_then(|s| s.to_str().ok())
         .and_then(|s| s.strip_prefix("sha256="))
         .and_then(|s| hex::decode(s).ok())
     {
+        // Try primary secret
         let mut mac = Hmac::<Sha256>::new_from_slice(secret)?;
+        mac.update(body);
+        let result = mac.verify_slice(&signature[..]);
+        if result.is_ok() {
+            return Ok(());
+        }
+        if secret_fallback.is_none() {
+            return result.map_err(Error::new);
+        }
+
+        // Try fallback secret (if available)
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret_fallback.expect("secret should be set"))?;
         mac.update(body);
         mac.verify_slice(&signature[..]).map_err(Error::new)
     } else {
