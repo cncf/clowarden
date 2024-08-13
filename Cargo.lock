@@ -442,7 +442,7 @@ checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
 
 [[package]]
 name = "clowarden-cli"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "clowarden-core"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "as-any",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "clowarden-server"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "askama",
