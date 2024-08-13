@@ -4,6 +4,55 @@ entries:
   - annotations:
       artifacthub.io/category: skip-prediction
       artifacthub.io/changes: |
+        - kind: added
+          description: Webhook secret fallback for key rotation
+        - kind: added
+          description: Set audit index document cache max size
+        - kind: added
+          description: Build linux/arm64 images
+        - kind: changed
+          description: Bump Alpine to 3.20.2
+        - kind: changed
+          description: Upgrade backend and frontend dependencies
+      artifacthub.io/images: |
+        - name: dbmigrator
+          image: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator:v0.1.3
+        - name: server
+          image: public.ecr.aws/g6m3a0y9/clowarden-server:v0.1.3
+      artifacthub.io/links: |
+        - name: source
+          url: https://github.com/cncf/clowarden
+        - name: support
+          url: https://github.com/cncf/clowarden/issues
+    apiVersion: v2
+    appVersion: 0.1.3
+    created: "2024-08-13T17:43:27.429569948Z"
+    dependencies:
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: https://charts.helm.sh/stable
+      version: 8.2.1
+    description: CLOWarden is a tool that manages access to resources across multiple
+      services
+    digest: 8c92f7e76fcda3313c11c3453a27236644feffe49eb214c4d8effdbca68f7efe
+    home: https://clowarden.io
+    icon: https://raw.githubusercontent.com/cncf/clowarden/main/docs/logo/logo.png
+    keywords:
+    - clowarden
+    kubeVersion: '>= 1.19.0-0'
+    maintainers:
+    - email: tegioz@icloud.com
+      name: Sergio
+    - email: cynthiasg@icloud.com
+      name: Cintia
+    name: clowarden
+    type: application
+    urls:
+    - https://github.com/cncf/clowarden/releases/download/clowarden-chart-0.1.3/clowarden-0.1.3.tgz
+    version: 0.1.3
+  - annotations:
+      artifacthub.io/category: skip-prediction
+      artifacthub.io/changes: |
         - kind: fixed
           description: Regression building audit UI
       artifacthub.io/images: |
@@ -83,4 +132,4 @@ entries:
     urls:
     - https://github.com/cncf/clowarden/releases/download/clowarden-chart-0.1.0/clowarden-0.1.0.tgz
     version: 0.1.0
-generated: "2024-05-27T07:30:45.949713616Z"
+generated: "2024-08-13T17:43:27.429585137Z"
