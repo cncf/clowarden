@@ -1,5 +1,5 @@
 # Build clowarden
-FROM rust:1-alpine3.20 as builder
+FROM rust:1-alpine3.20 AS builder
 RUN apk --no-cache add musl-dev perl make
 WORKDIR /clowarden
 COPY Cargo.* ./
@@ -15,6 +15,7 @@ RUN apk --no-cache add git
 WORKDIR /web
 COPY web .
 ENV NODE_OPTIONS=--max_old_space_size=4096
+RUN yarn config set network-timeout 1000000
 RUN yarn install --network-concurrency 1
 RUN yarn build
 
