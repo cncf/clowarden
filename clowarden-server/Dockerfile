@@ -20,7 +20,7 @@ RUN yarn install --network-concurrency 1
 RUN yarn build
 
 # Final stage
-FROM alpine:3.20.2
+FROM alpine:3.20.3
 RUN apk --no-cache add ca-certificates && addgroup -S clowarden && adduser -S clowarden -G clowarden
 USER clowarden
 WORKDIR /home/clowarden
