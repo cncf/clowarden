@@ -2,7 +2,7 @@ apiVersion: v2
 name: clowarden
 description: CLOWarden is a tool that manages access to resources across multiple services
 type: application
-version: 0.1.3
+version: 0.1.4-0
 appVersion: 0.1.3
 kubeVersion: ">= 1.19.0-0"
 home: https://clowarden.io
