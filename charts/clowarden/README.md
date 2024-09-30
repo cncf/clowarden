@@ -83,6 +83,9 @@ organizations:
 
 CLOWarden includes a CLI tool that can be handy when adding new organizations to your CLOWarden deployment. For more information please see the [repository's README file](https://github.com/cncf/clowarden?#cli-tool).
 
+> [!WARNING]
+> Please note that during the reconciliation process, in an attemtp to keep the actual state in sync with the desired state, CLOWarden **will remove** resources **that are not defined** in the configuration file (i.e. teams and permissions, but not repositories). Always make sure that the configuration file represents the actual state (or that you are OK with the changes that will be applied) before enabling the service. The `generate` subcommand of the CLI tool can be helpful to create an initial configuration file from the actual state, whereas the `diff` subcommand can be used to display the differences between the actual and desired state (i.e. what changes will be applied when the service is enabled based on the current configuration file).
+
 To install the chart with the release name `my-clowarden` run:
 
 ```bash
