@@ -156,7 +156,8 @@ teams:
 
 repositories:
   - name: <github_repository_name>
-    # Teams with access to the repository
+    # Teams with access to the repository.
+    # See https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization
     #
     #   - Key: GitHub team slug
     #   - Value: access level
@@ -166,6 +167,7 @@ repositories:
       <github_team_slug>: write
 
     # External collaborators with access to the repository
+    # See https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization
     #
     #   - Key: GitHub username (case sensitive)
     #   - Value: access level
