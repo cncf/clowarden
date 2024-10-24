@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
     let jobs_handler = jobs::Handler::new(db.clone(), gh.clone(), ghc.clone(), services);
     let jobs_workers_done = future::join_all([
-        jobs_handler.start(jobs_rx, stop_tx.subscribe()),
+        jobs_handler.start(jobs_rx, &stop_tx, cfg.get("organizations")?),
         jobs::scheduler(jobs_tx.clone(), stop_tx.subscribe(), cfg.get("organizations")?),
     ]);
 
