@@ -20,11 +20,11 @@ use clowarden_core::{
 use futures::future::{self, JoinAll};
 use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
-    time::{self, MissedTickBehavior},
+    time::{self, sleep, MissedTickBehavior},
 };
 use tracing::{debug, error, instrument};
 
@@ -377,6 +377,9 @@ pub(crate) fn scheduler(
                             org: org.clone(),
                             ..Default::default()
                         }));
+
+                        // Introduce a delay between scheduled jobs
+                        sleep(Duration::from_secs(30)).await;
                     }
                 },
             }
