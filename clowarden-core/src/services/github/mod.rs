@@ -1,14 +1,18 @@
 //! This module contains the implementation of the GitHub service handler.
 
-use anyhow::{Context, Result};
+use std::collections::HashSet;
+
+use anyhow::{format_err, Context, Result};
 use as_any::Downcast;
 use async_trait::async_trait;
+use state::Changes;
 use tracing::debug;
 
 use crate::{
     cfg::Organization,
     directory::{DirectoryChange, UserName},
     github::{DynGH, Source},
+    multierror::MultiError,
     services::ChangeApplied,
 };
 
@@ -56,6 +60,45 @@ impl Handler {
             });
         Ok(invitation_id)
     }
+
+    /// Validate users found in some of the changes provided.
+    async fn validate_users(&self, ctx: &Ctx, changes: &Changes) -> Result<()> {
+        let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
+
+        // Collect users to validate from changes
+        let mut users_to_validate = HashSet::new();
+        for change in &changes.directory {
+            if let DirectoryChange::TeamMemberAdded(_, user_name) = change {
+                users_to_validate.insert(user_name);
+            }
+        }
+        for change in &changes.repositories {
+            if let RepositoryChange::CollaboratorAdded(_, user_name, _) = change {
+                users_to_validate.insert(user_name);
+            }
+        }
+
+        // Validate users collected
+        for user_name in users_to_validate {
+            match self.svc.get_user_login(ctx, user_name).await {
+                Ok(valid_user_name) => {
+                    if user_name != &valid_user_name {
+                        merr.push(format_err!(
+                            "user[{user_name}]: invalid username, should be {valid_user_name}",
+                        ));
+                    }
+                }
+                Err(err) => {
+                    merr.push(format_err!("user[{user_name}]: error validating username: {err}"));
+                }
+            }
+        }
+
+        if merr.contains_errors() {
+            return Err(merr.into());
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -71,13 +114,14 @@ impl ServiceHandler for Handler {
                 .await
             {
                 Ok(base_state) => {
-                    let changes = base_state
-                        .diff(&head_state)
+                    let changes = base_state.diff(&head_state);
+                    self.validate_users(&ctx, &changes).await?;
+                    let repositories_changes = changes
                         .repositories
                         .into_iter()
                         .map(|change| Box::new(change) as DynChange)
                         .collect();
-                    (changes, BaseRefConfigStatus::Valid)
+                    (repositories_changes, BaseRefConfigStatus::Valid)
                 }
                 Err(_) => (vec![], BaseRefConfigStatus::Invalid),
             };

@@ -70,6 +70,9 @@ pub trait Svc {
         user_name: &UserName,
     ) -> Result<TeamMembership>;
 
+    /// Get user login.
+    async fn get_user_login(&self, ctx: &Ctx, user_name: &UserName) -> Result<UserName>;
+
     /// List organization admins.
     async fn list_org_admins(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>>;
 
@@ -390,6 +393,12 @@ impl Svc for SvcApi {
     ) -> Result<TeamMembership> {
         let client = self.setup_client(ctx.inst_id)?;
         Ok(client.teams().get_membership_for_user_in_org(&ctx.org, team_name, user_name).await?)
+    }
+
+    /// [Svc::get_user_login]
+    async fn get_user_login(&self, ctx: &Ctx, user_name: &UserName) -> Result<UserName> {
+        let client = self.setup_client(ctx.inst_id)?;
+        Ok(client.users().get_by_username_public_user(user_name).await?.login)
     }
 
     /// [Svc::list_org_admins]
