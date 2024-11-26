@@ -6,15 +6,14 @@ use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{Config, File};
+use db::DynDB;
 use deadpool_postgres::{Config as DbConfig, Runtime};
 use futures::future;
+use github::DynGH;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
-use tokio::{
-    net::TcpListener,
-    signal,
-    sync::{broadcast, mpsc},
-};
+use tokio::{net::TcpListener, signal, sync::mpsc};
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -69,12 +68,12 @@ async fn main() -> Result<()> {
     let connector = MakeTlsConnector::new(builder.build());
     let db_cfg: DbConfig = cfg.get("db")?;
     let pool = db_cfg.create_pool(Some(Runtime::Tokio1), connector)?;
-    let db = Arc::new(PgDB::new(pool));
+    let db: DynDB = Arc::new(PgDB::new(pool));
 
     // Setup GitHub clients
     let gh_app: core::cfg::GitHubApp = cfg.get("server.githubApp")?;
-    let gh = Arc::new(github::GHApi::new(&gh_app).context("error setting up github client")?);
-    let ghc = Arc::new(
+    let gh: DynGH = Arc::new(github::GHApi::new(&gh_app).context("error setting up github client")?);
+    let ghc: core::github::DynGH = Arc::new(
         core::github::GHApi::new_with_app_creds(&gh_app).context("error setting up core github client")?,
     );
 
@@ -84,18 +83,24 @@ async fn main() -> Result<()> {
         let svc = Arc::new(services::github::service::SvcApi::new_with_app_creds(&gh_app)?);
         services.insert(
             services::github::SERVICE_NAME,
-            Box::new(services::github::Handler::new(ghc.clone(), svc)),
+            Arc::new(services::github::Handler::new(ghc.clone(), svc)),
         );
     }
 
     // Setup and launch jobs workers
-    let (stop_tx, _): (broadcast::Sender<()>, _) = broadcast::channel(1);
+    let cancel_token = CancellationToken::new();
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::Handler::new(db.clone(), gh.clone(), ghc.clone(), services);
-    let jobs_workers_done = future::join_all([
-        jobs_handler.start(jobs_rx, &stop_tx, cfg.get("organizations")?),
-        jobs::scheduler(jobs_tx.clone(), stop_tx.subscribe(), cfg.get("organizations")?),
-    ]);
+    let jobs_handler = jobs::handler(
+        &db,
+        &gh,
+        &ghc,
+        &services,
+        jobs_rx,
+        cancel_token.clone(),
+        cfg.get("organizations")?,
+    );
+    let jobs_scheduler = jobs::scheduler(jobs_tx.clone(), cancel_token.clone(), cfg.get("organizations")?);
+    let jobs_workers_done = future::join_all([jobs_handler, jobs_scheduler]);
 
     // Setup and launch HTTP server
     let router = handlers::setup_router(&cfg, db.clone(), gh.clone(), jobs_tx)
@@ -110,7 +115,7 @@ async fn main() -> Result<()> {
     }
 
     // Ask jobs workers to stop and wait for them to finish
-    drop(stop_tx);
+    cancel_token.cancel();
     jobs_workers_done.await;
     info!("server stopped");
 
