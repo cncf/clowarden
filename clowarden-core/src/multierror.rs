@@ -1,8 +1,8 @@
 //! This module defines an error type that can aggregate multiple errors.
 
+use std::fmt::{self, Write};
+
 use anyhow::{Error, Result};
-use std::fmt;
-use std::fmt::Write;
 
 /// MultiError represents an error that aggregates a collection of errors.
 #[derive(Debug, Default)]

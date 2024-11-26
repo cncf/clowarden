@@ -1,11 +1,13 @@
 //! This module defines some types and traits that service handlers
 //! implementations will rely upon.
 
-use crate::{cfg::Organization, github::Source};
+use std::fmt::Debug;
+
 use anyhow::Result;
 use as_any::AsAny;
 use async_trait::async_trait;
-use std::fmt::Debug;
+
+use crate::{cfg::Organization, github::Source};
 
 pub mod github;
 

@@ -1,10 +1,12 @@
 //! This module defines the templates used to render the comments that
 //! CLOWarden will post to GitHub.
 
+use std::collections::HashMap;
+
 use anyhow::Error;
 use askama::Template;
+
 use clowarden_core::services::{ChangesApplied, ChangesSummary, ServiceName};
-use std::collections::HashMap;
 
 /// Template for the reconciliation completed comment.
 #[derive(Template)]

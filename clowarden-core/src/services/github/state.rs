@@ -2,17 +2,11 @@
 //! service, as well as the functionality to create new instances from the
 //! configuration or the service, and validating and comparing them.
 
-use super::{
-    legacy,
-    service::{Ctx, DynSvc},
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt::{self, Write},
 };
-use crate::{
-    cfg::Legacy,
-    directory::{Directory, DirectoryChange, Team, TeamName, UserName},
-    github::{DynGH, Source},
-    multierror::MultiError,
-    services::{Change, ChangeDetails},
-};
+
 use anyhow::{format_err, Context, Result};
 use futures::{
     future,
@@ -26,9 +20,18 @@ use octorust::types::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::{BTreeMap, HashSet},
-    fmt::{self, Write},
+
+use crate::{
+    cfg::Legacy,
+    directory::{Directory, DirectoryChange, Team, TeamName, UserName},
+    github::{DynGH, Source},
+    multierror::MultiError,
+    services::{Change, ChangeDetails},
+};
+
+use super::{
+    legacy,
+    service::{Ctx, DynSvc},
 };
 
 lazy_static! {

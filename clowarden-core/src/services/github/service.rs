@@ -1,10 +1,7 @@
 //! This module defines an abstraction layer over the service's (GitHub) API.
 
-use super::state::{Repository, RepositoryName, Role, Visibility};
-use crate::{
-    cfg::{GitHubApp, Organization},
-    directory::{self, TeamName, UserName},
-};
+use std::sync::Arc;
+
 use anyhow::{format_err, Context, Result};
 use async_trait::async_trait;
 use cached::proc_macro::cached;
@@ -22,8 +19,14 @@ use octorust::{
     },
     Client,
 };
-use std::sync::Arc;
 use tokio::time::{sleep, Duration};
+
+use crate::{
+    cfg::{GitHubApp, Organization},
+    directory::{self, TeamName, UserName},
+};
+
+use super::state::{Repository, RepositoryName, Role, Visibility};
 
 /// Trait that defines some operations a Svc implementation must support.
 #[async_trait]

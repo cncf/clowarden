@@ -3,14 +3,15 @@
 //! state instances from the legacy configuration.
 
 pub(crate) mod sheriff {
+    use anyhow::{format_err, Context, Error, Result};
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         directory::legacy::VALID_TEAM_NAME,
         github::{DynGH, Source},
         multierror::MultiError,
         services::github::state::Repository,
     };
-    use anyhow::{format_err, Context, Error, Result};
-    use serde::{Deserialize, Serialize};
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file

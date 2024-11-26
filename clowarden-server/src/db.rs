@@ -1,16 +1,19 @@
 //! This module defines an abstraction layer over the database.
 
-use crate::jobs::ReconcileInput;
+use std::{collections::HashMap, sync::Arc};
+
 use anyhow::{Error, Result};
 use async_trait::async_trait;
-use clowarden_core::services::{ChangesApplied, ServiceName};
 use deadpool_postgres::Pool;
 #[cfg(test)]
 use mockall::automock;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
 use tokio_postgres::types::Json;
 use uuid::Uuid;
+
+use clowarden_core::services::{ChangesApplied, ServiceName};
+
+use crate::jobs::ReconcileInput;
 
 /// Trait that defines some operations a DB implementation must support.
 #[async_trait]

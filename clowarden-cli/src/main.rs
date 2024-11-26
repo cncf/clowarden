@@ -1,8 +1,11 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::doc_markdown, clippy::similar_names)]
 
+use std::{env, fs::File, path::PathBuf, sync::Arc};
+
 use anyhow::{format_err, Result};
 use clap::{Args, Parser, Subcommand};
+
 use clowarden_core::{
     cfg::Legacy,
     directory,
@@ -18,7 +21,6 @@ use clowarden_core::{
         Change,
     },
 };
-use std::{env, fs::File, path::PathBuf, sync::Arc};
 
 #[derive(Parser)]
 #[command(

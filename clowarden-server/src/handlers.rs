@@ -1,11 +1,8 @@
 //! This module defines the handlers used to process HTTP requests to the
 //! supported endpoints.
 
-use crate::{
-    db::{DynDB, SearchChangesInput},
-    github::{self, Ctx, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
-    jobs::{Job, ReconcileInput, ValidateInput},
-};
+use std::{fmt::Display, path::Path, sync::Arc};
+
 use anyhow::{format_err, Error, Result};
 use axum::{
     body::{Body, Bytes},
@@ -18,13 +15,11 @@ use axum::{
     routing::{get, get_service, post},
     Router,
 };
-use clowarden_core::cfg::Organization;
 use config::{Config, ConfigError};
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
 use sha2::Sha256;
-use std::{fmt::Display, path::Path, sync::Arc};
 use tokio::sync::mpsc;
 use tower::ServiceBuilder;
 use tower_http::{
@@ -34,6 +29,14 @@ use tower_http::{
     validate_request::ValidateRequestHeaderLayer,
 };
 use tracing::{error, instrument, trace};
+
+use clowarden_core::cfg::Organization;
+
+use crate::{
+    db::{DynDB, SearchChangesInput},
+    github::{self, Ctx, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
+    jobs::{Job, ReconcileInput, ValidateInput},
+};
 
 /// Audit index HTML document cache duration.
 const AUDIT_INDEX_CACHE_MAX_AGE: usize = 300;
