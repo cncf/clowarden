@@ -1,19 +1,21 @@
 //! This module defines the types used to represent a directory as well as some
 //! functionality to create new instances or comparing them.
 
-use crate::{
-    cfg::{Legacy, Organization},
-    github::{DynGH, Source},
-    services::{BaseRefConfigStatus, Change, ChangeDetails, ChangesSummary, DynChange},
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
 };
+
 use anyhow::{format_err, Context, Result};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
+
+use crate::{
+    cfg::{Legacy, Organization},
+    github::{DynGH, Source},
+    services::{BaseRefConfigStatus, Change, ChangeDetails, ChangesSummary, DynChange},
 };
 
 pub mod legacy;

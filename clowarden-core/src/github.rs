@@ -1,6 +1,7 @@
 //! This module defines an abstraction layer over the GitHub API.
 
-use crate::cfg::{GitHubApp, Organization};
+use std::sync::Arc;
+
 use anyhow::{format_err, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
@@ -10,7 +11,8 @@ use octorust::{
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     Client,
 };
-use std::sync::Arc;
+
+use crate::cfg::{GitHubApp, Organization};
 
 /// Trait that defines some operations a GH implementation must support.
 #[async_trait]

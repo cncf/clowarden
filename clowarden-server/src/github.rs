@@ -1,9 +1,10 @@
 //! This module defines an abstraction layer over the GitHub API.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use axum::http::HeaderValue;
-use clowarden_core::cfg::{GitHubApp, Organization};
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
@@ -15,8 +16,9 @@ use octorust::{
     Client,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use thiserror::Error;
+
+use clowarden_core::cfg::{GitHubApp, Organization};
 
 /// Trait that defines some operations a GH implementation must support.
 #[async_trait]

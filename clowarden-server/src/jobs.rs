@@ -1,15 +1,22 @@
 //! This module defines the types and functionality needed to schedule and
 //! process jobs.
 
-use self::core::github::Source;
-use crate::{
-    db::DynDB,
-    github::{self, Ctx, DynGH},
-    tmpl,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
 use ::time::OffsetDateTime;
 use anyhow::{Error, Result};
 use askama::Template;
+use futures::future::{self, JoinAll};
+use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
+use serde::{Deserialize, Serialize};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinHandle,
+    time::{self, sleep, MissedTickBehavior},
+};
+use tracing::{debug, error, instrument};
+
+use self::core::github::Source;
 use clowarden_core::{
     self as core,
     cfg::Organization,
@@ -17,16 +24,12 @@ use clowarden_core::{
     multierror::MultiError,
     services::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynServiceHandler, ServiceName},
 };
-use futures::future::{self, JoinAll};
-use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::{
-    sync::{broadcast, mpsc},
-    task::JoinHandle,
-    time::{self, sleep, MissedTickBehavior},
+
+use crate::{
+    db::DynDB,
+    github::{self, Ctx, DynGH},
+    tmpl,
 };
-use tracing::{debug, error, instrument};
 
 /// Represents a job to be executed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

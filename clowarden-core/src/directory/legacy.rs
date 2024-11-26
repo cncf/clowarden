@@ -2,15 +2,16 @@
 //! format (Sheriff's and CNCF's users). The directory module relies on this
 //! module to create new directory instances from the legacy configuration.
 
+use anyhow::Result;
+use lazy_static::lazy_static;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+
 use crate::{
     cfg::Legacy,
     github::{DynGH, Source},
     multierror::MultiError,
 };
-use anyhow::Result;
-use lazy_static::lazy_static;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 
 lazy_static! {
     pub(crate) static ref VALID_TEAM_NAME: Regex =

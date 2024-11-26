@@ -1,19 +1,15 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::doc_markdown, clippy::similar_names)]
 
-use crate::db::PgDB;
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+
 use anyhow::{Context, Result};
 use clap::Parser;
-use clowarden_core::{
-    self as core,
-    services::{self, DynServiceHandler, ServiceName},
-};
 use config::{Config, File};
 use deadpool_postgres::{Config as DbConfig, Runtime};
 use futures::future;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{
     net::TcpListener,
     signal,
@@ -21,6 +17,13 @@ use tokio::{
 };
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+
+use clowarden_core::{
+    self as core,
+    services::{self, DynServiceHandler, ServiceName},
+};
+
+use crate::db::PgDB;
 
 mod db;
 mod github;

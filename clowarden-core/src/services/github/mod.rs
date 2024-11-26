@@ -1,20 +1,23 @@
 //! This module contains the implementation of the GitHub service handler.
 
-use self::{
-    service::{Ctx, DynSvc},
-    state::{RepositoryChange, RepositoryInvitationId, RepositoryName},
-};
-use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
+use anyhow::{Context, Result};
+use as_any::Downcast;
+use async_trait::async_trait;
+use tracing::debug;
+
 use crate::{
     cfg::Organization,
     directory::{DirectoryChange, UserName},
     github::{DynGH, Source},
     services::ChangeApplied,
 };
-use anyhow::{Context, Result};
-use as_any::Downcast;
-use async_trait::async_trait;
-use tracing::debug;
+
+use super::{BaseRefConfigStatus, ChangesApplied, ChangesSummary, DynChange, ServiceHandler};
+
+use self::{
+    service::{Ctx, DynSvc},
+    state::{RepositoryChange, RepositoryInvitationId, RepositoryName},
+};
 
 mod legacy;
 pub mod service;
