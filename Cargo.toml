@@ -13,14 +13,14 @@ edition = "2021"
 rust-version = "1.82"
 
 [workspace.dependencies]
-anyhow = "1.0.91"
+anyhow = "1.0.93"
 as-any = "0.3.1"
 askama = "0.12.1"
 async-trait = "0.1.83"
-axum = { version = "0.7.7", features = ["macros"] }
+axum = { version = "0.7.9", features = ["macros"] }
 base64 = "0.22.1"
-cached = { version = "0.53.1", features = ["async"] }
-clap = { version = "4.5.20", features = ["derive"] }
+cached = { version = "0.54.0", features = ["async"] }
+clap = { version = "4.5.21", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 config = "0.13.4"
 deadpool-postgres = { version = "0.14.0", features = ["serde"] }
@@ -29,25 +29,25 @@ hmac = "0.12.1"
 hex = "0.4.3"
 lazy_static = "1.5.0"
 mime = "0.3.17"
-mockall = "0.13.0"
+mockall = "0.13.1"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
 openssl = { version = "0.10.68", features = ["vendored"] }
 pem = "3.0.4"
 postgres-openssl = "0.5.0"
-regex = "1.11.0"
-serde = { version = "1.0.213", features = ["derive"] }
-serde_json = "1.0.132"
+regex = "1.11.1"
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = "1.0.133"
 serde_qs = "0.13.0"
 serde_yaml = "0.9.34"
 sha2 = "0.10.8"
-thiserror = "1.0.65"
+thiserror = "2.0.3"
 time = { version = "0.3.36", features = [
     "formatting",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.41.0", features = [
+tokio = { version = "1.41.1", features = [
     "macros",
     "process",
     "rt-multi-thread",
@@ -61,7 +61,7 @@ tokio-postgres = { version = "0.7.12", features = [
     "with-time-0_3",
 ] }
 tower = "0.5.1"
-tower-http = { version = "0.6.1", features = ["auth", "fs", "set-header", "trace"] }
+tower-http = { version = "0.6.2", features = ["auth", "fs", "set-header", "trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 uuid = { version = "1.11.0", features = ["serde", "v4"] }
