@@ -1,7 +1,7 @@
 //! This module defines some types and traits that service handlers
 //! implementations will rely upon.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use anyhow::Result;
 use as_any::AsAny;
@@ -27,7 +27,7 @@ pub trait ServiceHandler {
 }
 
 /// Type alias to represent a service handler trait object.
-pub type DynServiceHandler = Box<dyn ServiceHandler + Send + Sync>;
+pub type DynServiceHandler = Arc<dyn ServiceHandler + Send + Sync>;
 
 /// Represents a summary of changes detected in the service's state as defined
 /// in the configuration from the base to the head reference.

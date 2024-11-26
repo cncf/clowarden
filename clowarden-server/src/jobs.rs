@@ -1,7 +1,7 @@
 //! This module defines the types and functionality needed to schedule and
 //! process jobs.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use ::time::OffsetDateTime;
 use anyhow::{Error, Result};
@@ -10,10 +10,11 @@ use futures::future::{self, JoinAll};
 use octorust::types::{ChecksCreateRequestConclusion, JobStatus, PullRequestData};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::mpsc,
     task::JoinHandle,
     time::{self, sleep, MissedTickBehavior},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument};
 
 use self::core::github::Source;
@@ -30,6 +31,9 @@ use crate::{
     github::{self, Ctx, DynGH},
     tmpl,
 };
+
+/// How often periodic reconcile jobs should be scheduled (in seconds).
+const RECONCILE_FREQUENCY: u64 = 60 * 60; // Every hour
 
 /// Represents a job to be executed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,84 +121,83 @@ impl ValidateInput {
     }
 }
 
-/// A jobs handler is in charge of executing the received jobs.
-pub(crate) struct Handler {
+/// A jobs handler is in charge of executing the received jobs. It will create
+/// a worker for each organization, plus an additional task to route jobs to
+/// the corresponding organization worker. All tasks will stop when the
+/// cancellation token is cancelled.
+pub(crate) fn handler(
+    db: &DynDB,
+    gh: &DynGH,
+    ghc: &core::github::DynGH,
+    services: &HashMap<ServiceName, DynServiceHandler>,
+    mut jobs_rx: mpsc::UnboundedReceiver<Job>,
+    cancel_token: CancellationToken,
+    orgs: Vec<Organization>,
+) -> JoinAll<JoinHandle<()>> {
+    let mut handles = Vec::with_capacity(orgs.len() + 1);
+    let mut orgs_jobs_tx_channels = HashMap::new();
+
+    // Create a worker for each organization
+    for org in orgs {
+        let (org_jobs_tx, org_jobs_rx) = mpsc::unbounded_channel();
+        orgs_jobs_tx_channels.insert(org.name, org_jobs_tx);
+        let org_worker = OrgWorker::new(db.clone(), gh.clone(), ghc.clone(), services.clone());
+        handles.push(org_worker.run(org_jobs_rx, cancel_token.clone()));
+    }
+
+    // Create a worker to route jobs to the corresponding org worker
+    let jobs_router = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+
+                // Pick next job from the queue and send it to the corresponding org worker
+                Some(job) = jobs_rx.recv() => {
+                    if let Some(org_jobs_tx) = orgs_jobs_tx_channels.get(job.org_name()) {
+                        _ = org_jobs_tx.send(job);
+                    }
+                }
+
+                // Exit if the handler has been asked to stop
+                () = cancel_token.cancelled() => break,
+            }
+        }
+    });
+    handles.push(jobs_router);
+
+    future::join_all(handles)
+}
+
+/// An organization worker is in charge of processing jobs for a given
+/// organization.
+struct OrgWorker {
     db: DynDB,
     gh: DynGH,
     ghc: core::github::DynGH,
     services: HashMap<ServiceName, DynServiceHandler>,
 }
 
-impl Handler {
-    /// Create a new handler instance.
-    pub(crate) fn new(
+impl OrgWorker {
+    /// Create a new organization worker instance.
+    fn new(
         db: DynDB,
         gh: DynGH,
         ghc: core::github::DynGH,
         services: HashMap<ServiceName, DynServiceHandler>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
+    ) -> Self {
+        Self {
             db,
             gh,
             ghc,
             services,
-        })
-    }
-
-    /// Spawn some tasks to process jobs received on the jobs channel. We will
-    /// create one worker per organization, plus an additional task to route
-    /// jobs to the corresponding organization worker. All tasks will stop when
-    /// notified on the stop channel provided.
-    pub(crate) fn start(
-        self: Arc<Self>,
-        mut jobs_rx: mpsc::UnboundedReceiver<Job>,
-        stop_tx: &broadcast::Sender<()>,
-        orgs: Vec<Organization>,
-    ) -> JoinAll<JoinHandle<()>> {
-        let mut handles = Vec::with_capacity(orgs.len() + 1);
-        let mut orgs_jobs_tx_channels = HashMap::new();
-
-        // Create a worker for each organization
-        for org in orgs {
-            let (org_jobs_tx, org_jobs_rx) = mpsc::unbounded_channel();
-            orgs_jobs_tx_channels.insert(org.name, org_jobs_tx);
-            let org_worker = self.clone().organization_worker(org_jobs_rx, stop_tx.subscribe());
-            handles.push(org_worker);
         }
-
-        // Create a worker to route jobs to the corresponding org worker
-        let mut stop_rx = stop_tx.subscribe();
-        let jobs_router = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    biased;
-
-                    // Pick next job from the queue and send it to the corresponding org worker
-                    Some(job) = jobs_rx.recv() => {
-                        if let Some(org_jobs_tx) = orgs_jobs_tx_channels.get(job.org_name()) {
-                            _ = org_jobs_tx.send(job);
-                        }
-                    }
-
-                    // Exit if the handler has been asked to stop
-                    _ = stop_rx.recv() => {
-                        break
-                    }
-                }
-            }
-        });
-        handles.push(jobs_router);
-
-        future::join_all(handles)
     }
 
-    /// Spawn a worker that will take care of processing jobs for a given
-    /// organization. The worker will stop when notified on the stop channel
-    /// provided.
-    fn organization_worker(
-        self: Arc<Self>,
+    /// Run organization worker.
+    fn run(
+        self,
         mut org_jobs_rx: mpsc::UnboundedReceiver<Job>,
-        mut stop_rx: broadcast::Receiver<()>,
+        cancel_token: CancellationToken,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
@@ -210,9 +213,7 @@ impl Handler {
                     }
 
                     // Exit if the handler has been asked to stop
-                    _ = stop_rx.recv() => {
-                        break
-                    }
+                    () = cancel_token.cancelled() => break,
                 }
             }
         })
@@ -349,14 +350,11 @@ impl Handler {
     }
 }
 
-/// How often periodic reconcile jobs should be scheduled (in seconds).
-const RECONCILE_FREQUENCY: u64 = 60 * 60;
-
 /// A jobs scheduler is in charge of scheduling the execution of some jobs
 /// periodically.
 pub(crate) fn scheduler(
     jobs_tx: mpsc::UnboundedSender<Job>,
-    mut stop_rx: broadcast::Receiver<()>,
+    cancel_token: CancellationToken,
     orgs: Vec<Organization>,
 ) -> JoinAll<JoinHandle<()>> {
     let scheduler = tokio::spawn(async move {
@@ -369,9 +367,7 @@ pub(crate) fn scheduler(
                 biased;
 
                 // Exit if the scheduler has been asked to stop
-                _ = stop_rx.recv() => {
-                    break
-                }
+                () = cancel_token.cancelled() => break,
 
                 // Schedule reconcile job for each of the registered organizations
                 _ = reconcile.tick() => {

@@ -20,6 +20,9 @@ use thiserror::Error;
 
 use clowarden_core::cfg::{GitHubApp, Organization};
 
+/// Name used for the check run in GitHub.
+const CHECK_RUN_NAME: &str = "CLOWarden";
+
 /// Trait that defines some operations a GH implementation must support.
 #[async_trait]
 #[cfg_attr(test, automock)]
@@ -164,9 +167,6 @@ pub(crate) enum PullRequestEventAction {
     #[serde(other)]
     Other,
 }
-
-/// Name used for the check run in GitHub.
-const CHECK_RUN_NAME: &str = "CLOWarden";
 
 /// Helper function to create a new ChecksCreateRequest instance.
 pub(crate) fn new_checks_create_request(

@@ -22,6 +22,9 @@ use clowarden_core::{
     },
 };
 
+/// Environment variable containing Github token.
+const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
+
 #[derive(Parser)]
 #[command(
     version,
@@ -82,9 +85,6 @@ struct GenerateArgs {
     #[arg(long)]
     output_file: PathBuf,
 }
-
-/// Environment variable containing Github token.
-const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 
 #[tokio::main]
 async fn main() -> Result<()> {
