@@ -1,7 +1,7 @@
 //! This module defines the handlers used to process HTTP requests to the
 //! supported endpoints.
 
-use std::{fmt::Display, path::Path, sync::Arc};
+use std::{fmt::Display, path::Path};
 
 use anyhow::{format_err, Error, Result};
 use axum::{
@@ -15,7 +15,6 @@ use axum::{
     routing::{get, get_service, post},
     Router,
 };
-use config::{Config, ConfigError};
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
@@ -33,6 +32,7 @@ use tracing::{error, instrument, trace};
 use clowarden_core::cfg::Organization;
 
 use crate::{
+    cfg::Config,
     db::{DynDB, SearchChangesInput},
     github::{self, Ctx, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
     jobs::{Job, ReconcileInput, ValidateInput},
@@ -69,13 +69,13 @@ struct RouterState {
 
 /// Setup HTTP server router.
 pub(crate) fn setup_router(
-    cfg: &Arc<Config>,
+    cfg: &Config,
     db: DynDB,
     gh: DynGH,
     jobs_tx: mpsc::UnboundedSender<Job>,
 ) -> Result<Router> {
     // Setup some paths
-    let static_path = cfg.get_string("server.staticPath")?;
+    let static_path = cfg.server.static_path.clone();
     let root_index_path = Path::new(&static_path).join("index.html");
     let audit_path = Path::new(&static_path).join("audit");
     let audit_index_path = audit_path.join("index.html");
@@ -103,20 +103,16 @@ pub(crate) fn setup_router(
         .fallback_service(get_service(audit_index));
 
     // Setup basic auth
-    if cfg.get_bool("server.basicAuth.enabled").unwrap_or(false) {
-        let username = cfg.get_string("server.basicAuth.username")?;
-        let password = cfg.get_string("server.basicAuth.password")?;
-        audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(&username, &password));
+    if let Some(basic_auth) = &cfg.server.basic_auth {
+        if basic_auth.enabled {
+            audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(
+                &basic_auth.username,
+                &basic_auth.password,
+            ));
+        }
     }
 
     // Setup main router
-    let orgs = cfg.get("organizations")?;
-    let webhook_secret = cfg.get_string("server.githubApp.webhookSecret")?;
-    let webhook_secret_fallback = match cfg.get_string("server.githubApp.webhookSecretFallback") {
-        Ok(secret) => Some(secret),
-        Err(ConfigError::NotFound(_)) => None,
-        Err(err) => return Err(err.into()),
-    };
     let router = Router::new()
         .route("/webhook/github", post(event))
         .route("/health-check", get(health_check))
@@ -136,10 +132,10 @@ pub(crate) fn setup_router(
         .with_state(RouterState {
             db,
             gh,
-            webhook_secret,
-            webhook_secret_fallback,
+            webhook_secret: cfg.server.github_app.webhook_secret.clone(),
+            webhook_secret_fallback: cfg.server.github_app.webhook_secret_fallback.clone(),
             jobs_tx,
-            orgs,
+            orgs: cfg.organizations.clone().unwrap_or_default(),
         });
 
     Ok(router)

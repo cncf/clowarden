@@ -132,7 +132,7 @@ pub(crate) fn handler(
     services: &HashMap<ServiceName, DynServiceHandler>,
     mut jobs_rx: mpsc::UnboundedReceiver<Job>,
     cancel_token: CancellationToken,
-    orgs: Vec<Organization>,
+    orgs: &Vec<Organization>,
 ) -> JoinAll<JoinHandle<()>> {
     let mut handles = Vec::with_capacity(orgs.len() + 1);
     let mut orgs_jobs_tx_channels = HashMap::new();
@@ -140,7 +140,7 @@ pub(crate) fn handler(
     // Create a worker for each organization
     for org in orgs {
         let (org_jobs_tx, org_jobs_rx) = mpsc::unbounded_channel();
-        orgs_jobs_tx_channels.insert(org.name, org_jobs_tx);
+        orgs_jobs_tx_channels.insert(org.name.clone(), org_jobs_tx);
         let org_worker = OrgWorker::new(db.clone(), gh.clone(), ghc.clone(), services.clone());
         handles.push(org_worker.run(org_jobs_rx, cancel_token.clone()));
     }
@@ -355,8 +355,10 @@ impl OrgWorker {
 pub(crate) fn scheduler(
     jobs_tx: mpsc::UnboundedSender<Job>,
     cancel_token: CancellationToken,
-    orgs: Vec<Organization>,
+    orgs: &[Organization],
 ) -> JoinAll<JoinHandle<()>> {
+    let orgs = orgs.to_vec();
+
     let scheduler = tokio::spawn(async move {
         let reconcile_frequency = time::Duration::from_secs(RECONCILE_FREQUENCY);
         let mut reconcile = time::interval(reconcile_frequency);

@@ -14,8 +14,8 @@ axum = { workspace = true }
 cached = { workspace = true }
 clap = { workspace = true }
 clowarden-core = { path = "../clowarden-core" }
-config = { workspace = true }
 deadpool-postgres = { workspace = true }
+figment = { workspace = true }
 futures = { workspace = true }
 hmac = { workspace = true }
 hex = { workspace = true }

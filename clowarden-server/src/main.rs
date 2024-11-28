@@ -4,10 +4,10 @@
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
+use cfg::{Config, LogFormat};
 use clap::Parser;
-use config::{Config, File};
 use db::DynDB;
-use deadpool_postgres::{Config as DbConfig, Runtime};
+use deadpool_postgres::Runtime;
 use futures::future;
 use github::DynGH;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
@@ -24,6 +24,7 @@ use clowarden_core::{
 
 use crate::db::PgDB;
 
+mod cfg;
 mod db;
 mod github;
 mod handlers;
@@ -43,44 +44,36 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Setup configuration
-    let cfg = Config::builder()
-        .set_default("log.format", "pretty")?
-        .set_default("server.addr", "127.0.0.1:9000")?
-        .add_source(File::from(args.config))
-        .build()
-        .context("error setting up configuration")?;
-    validate_config(&cfg).context("error validating configuration")?;
-    let cfg = Arc::new(cfg);
+    let cfg = Config::new(&args.config).context("error setting up configuration")?;
 
     // Setup logging
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "clowarden=debug");
     }
-    let s = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env());
-    match cfg.get_string("log.format").as_deref() {
-        Ok("json") => s.json().init(),
-        _ => s.init(),
+    let ts = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env());
+    match cfg.log.format {
+        LogFormat::Json => ts.json().init(),
+        LogFormat::Pretty => ts.init(),
     };
 
     // Setup database
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     builder.set_verify(SslVerifyMode::NONE);
     let connector = MakeTlsConnector::new(builder.build());
-    let db_cfg: DbConfig = cfg.get("db")?;
-    let pool = db_cfg.create_pool(Some(Runtime::Tokio1), connector)?;
+    let pool = cfg.db.create_pool(Some(Runtime::Tokio1), connector)?;
     let db: DynDB = Arc::new(PgDB::new(pool));
 
     // Setup GitHub clients
-    let gh_app: core::cfg::GitHubApp = cfg.get("server.githubApp")?;
-    let gh: DynGH = Arc::new(github::GHApi::new(&gh_app).context("error setting up github client")?);
+    let gh_app = &cfg.server.github_app;
+    let gh: DynGH = Arc::new(github::GHApi::new(gh_app).context("error setting up github client")?);
     let ghc: core::github::DynGH = Arc::new(
-        core::github::GHApi::new_with_app_creds(&gh_app).context("error setting up core github client")?,
+        core::github::GHApi::new_with_app_creds(gh_app).context("error setting up core github client")?,
     );
 
     // Setup services handlers
     let mut services: HashMap<ServiceName, DynServiceHandler> = HashMap::new();
-    if cfg.get_bool("services.github.enabled").unwrap_or_default() {
-        let svc = Arc::new(services::github::service::SvcApi::new_with_app_creds(&gh_app)?);
+    if cfg.services.github.enabled {
+        let svc = Arc::new(services::github::service::SvcApi::new_with_app_creds(gh_app)?);
         services.insert(
             services::github::SERVICE_NAME,
             Arc::new(services::github::Handler::new(ghc.clone(), svc)),
@@ -88,24 +81,17 @@ async fn main() -> Result<()> {
     }
 
     // Setup and launch jobs workers
+    let orgs = cfg.organizations.clone().unwrap_or_default();
     let cancel_token = CancellationToken::new();
     let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
-    let jobs_handler = jobs::handler(
-        &db,
-        &gh,
-        &ghc,
-        &services,
-        jobs_rx,
-        cancel_token.clone(),
-        cfg.get("organizations")?,
-    );
-    let jobs_scheduler = jobs::scheduler(jobs_tx.clone(), cancel_token.clone(), cfg.get("organizations")?);
+    let jobs_handler = jobs::handler(&db, &gh, &ghc, &services, jobs_rx, cancel_token.clone(), &orgs);
+    let jobs_scheduler = jobs::scheduler(jobs_tx.clone(), cancel_token.clone(), &orgs);
     let jobs_workers_done = future::join_all([jobs_handler, jobs_scheduler]);
 
     // Setup and launch HTTP server
     let router = handlers::setup_router(&cfg, db.clone(), gh.clone(), jobs_tx)
         .context("error setting up http server router")?;
-    let addr: SocketAddr = cfg.get_string("server.addr")?.parse()?;
+    let addr: SocketAddr = cfg.server.addr.parse()?;
     let listener = TcpListener::bind(addr).await?;
     info!("server started");
     info!(%addr, "listening");
@@ -118,17 +104,6 @@ async fn main() -> Result<()> {
     cancel_token.cancel();
     jobs_workers_done.await;
     info!("server stopped");
-
-    Ok(())
-}
-
-/// Check if the configuration provided is valid.
-fn validate_config(cfg: &Config) -> Result<()> {
-    // Required fields
-    cfg.get_string("server.addr")?;
-    cfg.get_string("server.staticPath")?;
-    let _: core::cfg::GitHubApp = cfg.get("server.githubApp")?;
-    let _: Vec<core::cfg::Organization> = cfg.get("organizations")?;
 
     Ok(())
 }
