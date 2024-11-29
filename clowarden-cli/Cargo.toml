@@ -10,7 +10,6 @@ rust-version.workspace = true
 anyhow = { workspace = true }
 clap = { workspace = true }
 clowarden-core = { path = "../clowarden-core" }
-config = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }

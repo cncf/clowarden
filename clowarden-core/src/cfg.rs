@@ -2,6 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// GitHub application configuration.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all(deserialize = "camelCase"))]
+pub struct GitHubApp {
+    pub app_id: i64,
+    pub private_key: String,
+    pub webhook_secret: String,
+    pub webhook_secret_fallback: Option<String>,
+}
+
 /// Organization configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all(deserialize = "camelCase"))]
@@ -22,11 +32,14 @@ pub struct Legacy {
     pub cncf_people_path: Option<String>,
 }
 
-/// GitHub application configuration.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all(deserialize = "camelCase"))]
-pub struct GitHubApp {
-    pub app_id: i64,
-    pub private_key: String,
-    pub webhook_secret: String,
+/// Services configuration.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Services {
+    pub github: Service,
+}
+
+/// Service configuration.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Service {
+    pub enabled: bool,
 }

@@ -72,7 +72,7 @@ Once you have a working Rust development environment set up and the audit tool b
 ```yaml
 db:
   host: localhost
-  port: "5432"
+  port: 5432
   dbname: clowarden
   user: postgres
   password: ""
