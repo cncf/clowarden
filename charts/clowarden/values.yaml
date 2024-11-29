@@ -21,7 +21,7 @@ configDir: "/home/clowarden/.config/clowarden"
 # Database configuration
 db:
   host: ""
-  port: 5432
+  port: "5432"
   dbname: clowarden
   user: postgres
   password: postgres
