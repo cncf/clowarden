@@ -20,6 +20,7 @@ use octorust::types::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::trace;
 
 use crate::{
     cfg::Legacy,
@@ -147,11 +148,15 @@ impl State {
         for team in stream::iter(svc.list_teams(ctx).await?)
             .map(|team| async {
                 // Get maintainers and members (including pending invitations)
+                trace!(team = %team.slug, "getting team maintainers");
                 let mut maintainers: Vec<UserName> =
                     svc.list_team_maintainers(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
+                trace!(team = %team.slug, "getting team members");
                 let mut members: Vec<UserName> =
                     svc.list_team_members(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
+                trace!(team = %team.slug, "getting team invitations");
                 for invitation in svc.list_team_invitations(ctx, &team.slug).await? {
+                    trace!(team = %team.slug, login = %invitation.login, "getting team membership");
                     let membership = svc.get_team_membership(ctx, &team.slug, &invitation.login).await?;
                     if membership.state == OrgMembershipState::Pending {
                         match membership.role {
