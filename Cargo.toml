@@ -13,14 +13,14 @@ edition = "2021"
 rust-version = "1.82"
 
 [workspace.dependencies]
-anyhow = "1.0.93"
+anyhow = "1.0.94"
 as-any = "0.3.1"
 askama = "0.12.1"
 async-trait = "0.1.83"
 axum = { version = "0.7.9", features = ["macros"] }
 base64 = "0.22.1"
 cached = { version = "0.54.0", features = ["async"] }
-clap = { version = "4.5.21", features = ["derive"] }
+clap = { version = "4.5.23", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 deadpool-postgres = { version = "0.14.0", features = ["serde"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
@@ -40,14 +40,14 @@ serde_json = "1.0.133"
 serde_qs = "0.13.0"
 serde_yaml = "0.9.34"
 sha2 = "0.10.8"
-thiserror = "2.0.3"
-time = { version = "0.3.36", features = [
+thiserror = "2.0.6"
+time = { version = "0.3.37", features = [
     "formatting",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.41.1", features = [
+tokio = { version = "1.42.0", features = [
     "macros",
     "process",
     "rt-multi-thread",
@@ -60,9 +60,9 @@ tokio-postgres = { version = "0.7.12", features = [
     "with-serde_json-1",
     "with-time-0_3",
 ] }
-tokio-util = { version = "0.7.12", features = ["rt"] }
+tokio-util = { version = "0.7.13", features = ["rt"] }
 tower = "0.5.1"
 tower-http = { version = "0.6.2", features = ["auth", "fs", "set-header", "trace"] }
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 uuid = { version = "1.11.0", features = ["serde", "v4"] }
