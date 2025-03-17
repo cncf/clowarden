@@ -10,19 +10,19 @@ members = [
 version = "0.2.0"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.85"
 
 [workspace.dependencies]
-anyhow = "1.0.94"
-as-any = "0.3.1"
+anyhow = "1.0.97"
+as-any = "0.3.2"
 askama = "0.12.1"
-async-trait = "0.1.83"
-axum = { version = "0.7.9", features = ["macros"] }
+async-trait = "0.1.88"
+axum = { version = "0.8.1", features = ["macros"] }
 base64 = "0.22.1"
-cached = { version = "0.54.0", features = ["async"] }
-clap = { version = "4.5.23", features = ["derive"] }
+cached = { version = "0.55.1", features = ["async"] }
+clap = { version = "4.5.32", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
-deadpool-postgres = { version = "0.14.0", features = ["serde"] }
+deadpool-postgres = { version = "0.14.1", features = ["serde"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
 futures = "0.3.31"
 hmac = "0.12.1"
@@ -31,23 +31,23 @@ lazy_static = "1.5.0"
 mime = "0.3.17"
 mockall = "0.13.1"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
-openssl = { version = "0.10.68", features = ["vendored"] }
-pem = "3.0.4"
-postgres-openssl = "0.5.0"
+openssl = { version = "0.10.71", features = ["vendored"] }
+pem = "3.0.5"
+postgres-openssl = "0.5.1"
 regex = "1.11.1"
-serde = { version = "1.0.215", features = ["derive"] }
-serde_json = "1.0.133"
-serde_qs = "0.13.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+serde_qs = "0.14.0"
 serde_yaml = "0.9.34"
 sha2 = "0.10.8"
-thiserror = "2.0.6"
-time = { version = "0.3.37", features = [
+thiserror = "2.0.12"
+time = { version = "0.3.39", features = [
     "formatting",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.42.0", features = [
+tokio = { version = "1.44.1", features = [
     "macros",
     "process",
     "rt-multi-thread",
@@ -55,14 +55,14 @@ tokio = { version = "1.42.0", features = [
     "sync",
     "time",
 ] }
-tokio-postgres = { version = "0.7.12", features = [
+tokio-postgres = { version = "0.7.13", features = [
     "with-uuid-1",
     "with-serde_json-1",
     "with-time-0_3",
 ] }
-tokio-util = { version = "0.7.13", features = ["rt"] }
-tower = "0.5.1"
+tokio-util = { version = "0.7.14", features = ["rt"] }
+tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["auth", "fs", "set-header", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-uuid = { version = "1.11.0", features = ["serde", "v4"] }
+uuid = { version = "1.16.0", features = ["serde", "v4"] }
