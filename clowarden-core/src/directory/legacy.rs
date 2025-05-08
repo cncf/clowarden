@@ -2,8 +2,9 @@
 //! format (Sheriff's and CNCF's users). The directory module relies on this
 //! module to create new directory instances from the legacy configuration.
 
+use std::sync::LazyLock;
+
 use anyhow::Result;
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -13,10 +14,8 @@ use crate::{
     multierror::MultiError,
 };
 
-lazy_static! {
-    pub(crate) static ref VALID_TEAM_NAME: Regex =
-        Regex::new(r"^[a-z0-9\-]+$").expect("expr in VALID_TEAM_NAME to be valid");
-}
+pub(crate) static VALID_TEAM_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-z0-9\-]+$").expect("expr in VALID_TEAM_NAME to be valid"));
 
 /// Legacy configuration.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

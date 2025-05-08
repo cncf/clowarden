@@ -81,7 +81,7 @@ pub fn format_error(err: &Error) -> Result<String> {
                     write!(s, "\n{}- {cause}", "\t".repeat(depth))?;
                 }
             }
-        };
+        }
         Ok(())
     }
 

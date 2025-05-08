@@ -4,10 +4,10 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
+    sync::LazyLock,
 };
 
 use anyhow::{format_err, Context, Result};
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,10 +20,9 @@ use crate::{
 
 pub mod legacy;
 
-lazy_static! {
-    static ref GITHUB_URL: Regex =
-        Regex::new("^https://github.com/(?P<handle>[^/]+)/?$").expect("expr in GITHUB_URL to be valid");
-}
+static GITHUB_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new("^https://github.com/(?P<handle>[^/]+)/?$").expect("expr in GITHUB_URL to be valid")
+});
 
 /// Type alias to represent a team name.
 pub type TeamName = String;
