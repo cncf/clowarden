@@ -1,6 +1,6 @@
 //! This module defines an abstraction layer over the database.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use anyhow::{Error, Result};
 use async_trait::async_trait;
@@ -70,7 +70,7 @@ impl DB for PgDB {
         } else {
             let mut summary = String::new();
             for (i, (service_name, error)) in errors.iter().enumerate() {
-                summary.push_str(&format!("{service_name}: {error:?}"));
+                write!(&mut summary, "{service_name}: {error:?}")?;
                 if errors.len() > i + 1 {
                     summary.push('\n');
                 }

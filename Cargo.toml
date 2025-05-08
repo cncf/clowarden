@@ -10,17 +10,17 @@ members = [
 version = "0.2.0"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.86"
 
 [workspace.dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 as-any = "0.3.2"
-askama = "0.12.1"
+askama = "0.14.0"
 async-trait = "0.1.88"
-axum = { version = "0.8.1", features = ["macros"] }
+axum = { version = "0.8.4", features = ["macros"] }
 base64 = "0.22.1"
 cached = { version = "0.55.1", features = ["async"] }
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.37", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 deadpool-postgres = { version = "0.14.1", features = ["serde"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
@@ -31,23 +31,23 @@ lazy_static = "1.5.0"
 mime = "0.3.17"
 mockall = "0.13.1"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
-openssl = { version = "0.10.71", features = ["vendored"] }
+openssl = { version = "0.10.72", features = ["vendored"] }
 pem = "3.0.5"
 postgres-openssl = "0.5.1"
 regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-serde_qs = "0.14.0"
+serde_qs = "0.15.0"
 serde_yaml = "0.9.34"
-sha2 = "0.10.8"
+sha2 = "0.10.9"
 thiserror = "2.0.12"
-time = { version = "0.3.39", features = [
+time = { version = "0.3.41", features = [
     "formatting",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.44.1", features = [
+tokio = { version = "1.45.0", features = [
     "macros",
     "process",
     "rt-multi-thread",
@@ -60,9 +60,9 @@ tokio-postgres = { version = "0.7.13", features = [
     "with-serde_json-1",
     "with-time-0_3",
 ] }
-tokio-util = { version = "0.7.14", features = ["rt"] }
+tokio-util = { version = "0.7.15", features = ["rt"] }
 tower = "0.5.2"
-tower-http = { version = "0.6.2", features = ["auth", "fs", "set-header", "trace"] }
+tower-http = { version = "0.6.3", features = ["auth", "fs", "set-header", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
