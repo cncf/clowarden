@@ -27,7 +27,6 @@ figment = { version = "0.10.19", features = ["yaml", "env"] }
 futures = "0.3.31"
 hmac = "0.12.1"
 hex = "0.4.3"
-lazy_static = "1.5.0"
 mime = "0.3.17"
 mockall = "0.13.1"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
