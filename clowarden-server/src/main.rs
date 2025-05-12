@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
     match cfg.log.format {
         LogFormat::Json => ts.json().init(),
         LogFormat::Pretty => ts.init(),
-    };
+    }
 
     // Setup database
     let mut builder = SslConnector::builder(SslMethod::tls())?;

@@ -171,7 +171,7 @@ async fn event(
     .is_err()
     {
         return Err((StatusCode::BAD_REQUEST, "no valid signature found".to_string()));
-    };
+    }
 
     // Parse event
     let event_header = &headers.get(GITHUB_EVENT_HEADER).cloned();
@@ -338,7 +338,7 @@ async fn pr_updates_config(gh: DynGH, org: &Organization, event: &PullRequestEve
         let mut legacy_cfg_files = vec![&org.legacy.sheriff_permissions_path];
         if let Some(cncf_people_path) = &org.legacy.cncf_people_path {
             legacy_cfg_files.push(cncf_people_path);
-        };
+        }
         let ctx = Ctx::from(org);
         for filename in gh.list_pr_files(&ctx, event.pull_request.number).await? {
             if legacy_cfg_files.contains(&&filename) {

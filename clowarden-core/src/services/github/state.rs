@@ -5,6 +5,7 @@
 use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Write},
+    sync::LazyLock,
 };
 
 use anyhow::{format_err, Context, Result};
@@ -12,7 +13,6 @@ use futures::{
     future,
     stream::{self, StreamExt},
 };
-use lazy_static::lazy_static;
 use octorust::types::{
     OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
     TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
@@ -34,12 +34,11 @@ use super::{
     service::{Ctx, DynSvc},
 };
 
-lazy_static! {
-    /// Regular expression to match temporary private forks created for GitHub
-    /// security advisories.
-    static ref GHSA_TEMP_FORK: Regex =
-        Regex::new("^(.+)-ghsa(-[23456789cfghjmpqrvwx]{4}){3}$").expect("expr in GHSA_TEMP_FORK to be valid");
-}
+/// Regular expression to match temporary private forks created for GitHub
+/// security advisories.
+static GHSA_TEMP_FORK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new("^(.+)-ghsa(-[23456789cfghjmpqrvwx]{4}){3}$").expect("expr in GHSA_TEMP_FORK to be valid")
+});
 
 /// Type alias to represent a repository name.
 pub type RepositoryName = String;

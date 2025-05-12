@@ -120,7 +120,7 @@ mod filters {
     use clowarden_core::multierror;
 
     /// Template filter that formats the error provided.
-    pub(crate) fn format_error(err: &Error) -> askama::Result<String> {
+    pub(crate) fn format_error(err: &Error, _: &dyn askama::Values) -> askama::Result<String> {
         match multierror::format_error(err) {
             Ok(s) => Ok(s),
             Err(err) => Err(askama::Error::Custom(err.into())),

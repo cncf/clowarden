@@ -13,7 +13,6 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 cached = { workspace = true }
 futures = { workspace = true }
-lazy_static = { workspace = true }
 octorust = { workspace = true }
 pem = { workspace = true }
 regex = { workspace = true }
