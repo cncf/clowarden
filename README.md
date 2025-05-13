@@ -17,7 +17,7 @@ CLOWarden monitors pull requests created in the configuration repository and, wh
 Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state documented in the configuration files. So in addition to on-demand reconciliation jobs, CLOWarden runs *periodic* ones to ensure everything is all right all the time.
 
 > [!WARNING]
-> Please note that during the reconciliation process, in an attemtp to keep the actual state in sync with the desired state, CLOWarden **will remove** resources **that are not defined** in the configuration file (i.e. teams and permissions, but not repositories). Always make sure that the configuration file represents the actual state (or that you are OK with the changes that will be applied) before enabling the service. The `generate` subcommand of the CLI tool can be helpful to create an initial configuration file from the actual state, whereas the `diff` subcommand can be used to display the differences between the actual and desired state (i.e. what changes will be applied when the service is enabled based on the current configuration file).
+> Please note that during the reconciliation process, in an attempt to keep the actual state in sync with the desired state, CLOWarden **will remove** resources **that are not defined** in the configuration file (i.e. teams and permissions, but not repositories). Always make sure that the configuration file represents the actual state (or that you are OK with the changes that will be applied) before enabling the service. The `generate` subcommand of the CLI tool can be helpful to create an initial configuration file from the actual state, whereas the `diff` subcommand can be used to display the differences between the actual and desired state (i.e. what changes will be applied when the service is enabled based on the current configuration file).
 
 ### State
 
@@ -77,7 +77,7 @@ The pull request creator can now push a fix to address these issues. Once that's
 
 Now CLOWarden is happy with the changes proposed! This time, it also tried to help the maintainer who will approve the changes by describing in the comment what had changed.
 
-Sometimes this may be easy to spot by just looking at a the diff on the PR. But on other occasions, depending on the changes applied, it can get trickier and be error prone, as just a single extra space or tabulation can have unintented consequences. So CLOWarden simplifies this by analyzing the changes itself and displaying them in an easy to read way as a comment on the PR.
+Sometimes this may be easy to spot by just looking at a the diff on the PR. But on other occasions, depending on the changes applied, it can get trickier and be error prone, as just a single extra space or tabulation can have unintended consequences. So CLOWarden simplifies this by analyzing the changes itself and displaying them in an easy to read way as a comment on the PR.
 
 ![valid-config-check-run](docs/screenshots/valid-config-check-run.png)
 
