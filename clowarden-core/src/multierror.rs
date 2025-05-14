@@ -1,43 +1,72 @@
-//! This module defines an error type that can aggregate multiple errors.
+//! Aggregates multiple errors into a single error value.
+//!
+//! ```rust
+//! use anyhow::{anyhow, Result};
+//! use crate::error::MultiError;
+//!
+//! let mut agg = MultiError::new(Some("loading config".into()));
+//! agg.push(anyhow!("file missing"));
+//! agg.push(anyhow!("invalid syntax"));
+//!
+//! if !agg.is_empty() {
+//!     eprintln!("{agg}");
+//! }
+//! ```
 
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Display, Formatter, Write},
+    iter::{FromIterator, IntoIterator},
+};
 
 use anyhow::{Error, Result};
 
-/// MultiError represents an error that aggregates a collection of errors.
+/// A container that *collects* several independent errors and exposes them as one.
+///
+/// It is especially handy in “best-effort” loops where you want to continue
+/// processing even when individual items fail.
+///
+/// The optional `context` string is printed **once** at the top of the
+/// `Display` output.
 #[derive(Debug, Default)]
 pub struct MultiError {
-    pub context: Option<String>,
-    errors: Vec<Error>,
+    context: Option<String>,
+    errors:  Vec<Error>,
 }
 
 impl MultiError {
-    /// Create a new MultiError instance.
-    #[must_use]
-    pub fn new(context: Option<String>) -> Self {
+    /// Creates an empty `MultiError` with optional context.
+    pub fn new<C: Into<Option<String>>>(context: C) -> Self {
         Self {
-            context,
-            errors: vec![],
+            context: context.into(),
+            errors:  Vec::new(),
         }
     }
 
-    /// Check if there is at least one error.
-    #[must_use]
-    pub fn contains_errors(&self) -> bool {
-        !self.errors.is_empty()
+    /// Returns `true` when **no** inner errors are stored.
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
     }
 
-    /// Return all errors.
-    #[must_use]
-    pub fn errors(&self) -> Vec<&Error> {
-        self.errors.iter().collect()
+    /// Immutable view of all inner errors.
+    pub fn errors(&self) -> &[Error] {
+        &self.errors
     }
 
-    // Append error provided to the internal list of errors.
-    pub fn push(&mut self, err: Error) {
-        self.errors.push(err);
+    /// Adds an error (or anything convertible into `anyhow::Error`).
+    pub fn push<E>(&mut self, err: E)
+    where
+        E: Into<Error>,
+    {
+        self.errors.push(err.into());
+    }
+
+    /// Consumes `self`, yielding the underlying `Vec<Error>`.
+    pub fn into_inner(self) -> Vec<Error> {
+        self.errors
     }
 }
+
+/* -------------------------------- Impl glue ------------------------------- */
 
 impl From<Error> for MultiError {
     fn from(err: Error) -> Self {
@@ -48,10 +77,28 @@ impl From<Error> for MultiError {
     }
 }
 
-impl fmt::Display for MultiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for err in &self.errors {
-            write!(f, "{err:#} ")?;
+impl Extend<Error> for MultiError {
+    fn extend<I: IntoIterator<Item = Error>>(&mut self, iter: I) {
+        self.errors.extend(iter);
+    }
+}
+
+impl FromIterator<Error> for MultiError {
+    fn from_iter<I: IntoIterator<Item = Error>>(iter: I) -> Self {
+        Self {
+            context: None,
+            errors:  iter.into_iter().collect(),
+        }
+    }
+}
+
+impl Display for MultiError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if let Some(ctx) = &self.context {
+            writeln!(f, "{ctx}:")?;
+        }
+        for (idx, err) in self.errors.iter().enumerate() {
+            writeln!(f, "  {:>2}. {err:#}", idx + 1)?;
         }
         Ok(())
     }
@@ -59,33 +106,39 @@ impl fmt::Display for MultiError {
 
 impl std::error::Error for MultiError {}
 
-/// Format the error provided recursively.
-#[allow(clippy::missing_errors_doc)]
-pub fn format_error(err: &Error) -> Result<String> {
-    fn format_error(err: &Error, depth: usize, s: &mut String) -> Result<()> {
-        if let Some(merr) = err.downcast_ref::<MultiError>() {
-            let mut next_depth = depth;
-            if let Some(context) = &merr.context {
-                write!(s, "\n{}- {context}", "\t".repeat(depth))?;
-                next_depth += 1;
+/* ------------------------- pretty-format helper --------------------------- */
+
+/// Human-readable, indented dump of *any* `anyhow::Error`,
+/// unfolding nested `MultiError`s and cause-chains.
+///
+/// ```rust
+/// # use anyhow::anyhow;
+/// # use crate::error::{MultiError, pretty_format};
+/// let mut m = MultiError::new(None);
+/// m.push(anyhow!("root cause"));
+/// println!("{}", pretty_format(&anyhow!(m))?);
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn pretty_format(err: &Error) -> Result<String> {
+    fn fmt_inner(e: &Error, depth: usize, out: &mut String) -> Result<()> {
+        let indent = "  ".repeat(depth);
+        if let Some(me) = e.downcast_ref::<MultiError>() {
+            if let Some(ctx) = &me.context {
+                writeln!(out, "{indent}{ctx}")?;
             }
-            for err in &merr.errors() {
-                format_error(err, next_depth, s)?;
+            for sub in me.errors() {
+                fmt_inner(sub, depth + 1, out)?;
             }
         } else {
-            write!(s, "\n{}- {err}", "\t".repeat(depth))?;
-            if err.chain().skip(1).count() > 0 {
-                let mut depth = depth;
-                for cause in err.chain().skip(1) {
-                    depth += 1;
-                    write!(s, "\n{}- {cause}", "\t".repeat(depth))?;
-                }
+            writeln!(out, "{indent}{e}")?;
+            for cause in e.chain().skip(1) {
+                writeln!(out, "{}  ↳ {}", indent, cause)?;
             }
         }
         Ok(())
     }
 
-    let mut s = String::new();
-    format_error(err, 0, &mut s)?;
-    Ok(s)
+    let mut out = String::new();
+    fmt_inner(err, 0, &mut out)?;
+    Ok(out)
 }
