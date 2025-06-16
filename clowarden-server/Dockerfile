@@ -1,5 +1,5 @@
 # Build clowarden
-FROM rust:1-alpine3.21 AS builder
+FROM rust:1-alpine3.22 AS builder
 RUN apk --no-cache add musl-dev perl make
 WORKDIR /clowarden
 COPY Cargo.* ./
@@ -10,7 +10,7 @@ WORKDIR /clowarden/clowarden-server
 RUN cargo build --release
 
 # Build frontend
-FROM node:22-alpine3.21 AS frontend-builder
+FROM node:22-alpine3.22 AS frontend-builder
 RUN apk --no-cache add git
 WORKDIR /web
 COPY web .
@@ -20,7 +20,7 @@ RUN yarn install --network-concurrency 1
 RUN yarn build
 
 # Final stage
-FROM alpine:3.21.3
+FROM alpine:3.22.0
 RUN apk --no-cache add ca-certificates && addgroup -S clowarden && adduser -S clowarden -G clowarden
 USER clowarden
 WORKDIR /home/clowarden
