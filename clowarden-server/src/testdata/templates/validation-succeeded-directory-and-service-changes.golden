@@ -1,0 +1,16 @@
+## Validation succeeded
+
+#### ✅ The proposed configuration changes are valid!
+
+## Configuration changes
+
+### Directory
+    
+- user **Bob Jones** has been *added*
+### Github
+        
+- team **legacy-team** has been *removed* from repository **old-repo**
+      
+***
+
+🔸 **Please review the changes detected as they will be applied *immediately* once this PR is merged** 🔸
