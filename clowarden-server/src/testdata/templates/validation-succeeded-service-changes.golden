@@ -4,9 +4,8 @@
 
 ## Configuration changes
 
-
 ### Github
-        
+      
 - repository **new-repo** has been *added* (visibility: **public**)
 - repository **existing-repo** visibility has been updated to **private**
       

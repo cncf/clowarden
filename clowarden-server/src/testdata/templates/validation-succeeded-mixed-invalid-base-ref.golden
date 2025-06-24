@@ -6,11 +6,12 @@
 
 ### Directory
     
-      The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
+The configuration in the base reference is not valid, so I cannot check what has changed. Please review changes manually.
     
 - team **old-team** has been *removed*
+  
 ### Github
-        
+      
 - user **charlie** role in repository **main-repo** has been updated to **maintain**
       
 ***
