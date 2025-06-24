@@ -1,0 +1,16 @@
+## Reconciliation completed
+
+#### ✅ The reconciliation completed successfully and all changes have been applied across the services!
+
+## Changes applied
+    
+### Github
+
+- repository **complex-repo** has been *added* (visibility: **public**)
+	- Teams
+		- **backend**: *admin*
+		- **frontend**: *write*
+	- Collaborators
+		- **jane**: *read*
+		- **john**: *maintain*
+    

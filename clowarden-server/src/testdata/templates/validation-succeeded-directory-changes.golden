@@ -1,0 +1,15 @@
+## Validation succeeded
+
+#### ✅ The proposed configuration changes are valid!
+
+## Configuration changes
+
+### Directory
+    
+- user **Alice Smith** has been *added*
+- team **engineering** has been *added*
+- **alice** is now a member of team **engineering**
+  
+***
+
+🔸 **Please review the changes detected as they will be applied *immediately* once this PR is merged** 🔸
