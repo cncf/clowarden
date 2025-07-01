@@ -404,11 +404,11 @@ impl State {
             // Teams
             let mut teams_old = HashSet::new();
             if let Some(teams) = &repos_old[repo_name].teams {
-                teams_old = teams.iter().map(|(name, _)| name).collect();
+                teams_old = teams.keys().collect();
             }
             let mut teams_new = HashSet::new();
             if let Some(teams) = &repos_new[repo_name].teams {
-                teams_new = teams.iter().map(|(name, _)| name).collect();
+                teams_new = teams.keys().collect();
             }
             for team_name in teams_old.difference(&teams_new) {
                 changes.push(RepositoryChange::TeamRemoved(
@@ -442,11 +442,11 @@ impl State {
             // Collaborators
             let mut collaborators_old = HashSet::new();
             if let Some(collaborators) = &repos_old[repo_name].collaborators {
-                collaborators_old = collaborators.iter().map(|(name, _)| name).collect();
+                collaborators_old = collaborators.keys().collect();
             }
             let mut collaborators_new = HashSet::new();
             if let Some(collaborators) = &repos_new[repo_name].collaborators {
-                collaborators_new = collaborators.iter().map(|(name, _)| name).collect();
+                collaborators_new = collaborators.keys().collect();
             }
             for user_name in collaborators_old.difference(&collaborators_new) {
                 changes.push(RepositoryChange::CollaboratorRemoved(
