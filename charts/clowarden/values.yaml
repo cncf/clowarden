@@ -36,7 +36,7 @@ dbmigrator:
   job:
     image:
       # Database migrator image repository (without the tag)
-      repository: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator
+      repository: ghcr.io/cncf/clowarden/dbmigrator
 
 # CLOWarden server configuration
 server:
@@ -83,7 +83,7 @@ server:
   deploy:
     replicaCount: 1  # Do not increase
     image:
-      repository: public.ecr.aws/g6m3a0y9/clowarden-server
+      repository: ghcr.io/cncf/clowarden/server
     resources: {}
 
 # Services CLOWarden will manage

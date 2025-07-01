@@ -2,7 +2,7 @@ apiVersion: v2
 name: clowarden
 description: CLOWarden is a tool that manages access to resources across multiple services
 type: application
-version: 0.2.0
+version: 0.2.1-0
 appVersion: 0.2.0
 kubeVersion: ">= 1.19.0-0"
 home: https://clowarden.io
@@ -42,9 +42,9 @@ annotations:
       description: Issue processing email invitations
   artifacthub.io/images: |
     - name: dbmigrator
-      image: public.ecr.aws/g6m3a0y9/clowarden-dbmigrator:v0.2.0
+      image: ghcr.io/cncf/clowarden/dbmigrator:v0.2.0
     - name: server
-      image: public.ecr.aws/g6m3a0y9/clowarden-server:v0.2.0
+      image: ghcr.io/cncf/clowarden/server:v0.2.0
   artifacthub.io/links: |
     - name: source
       url: https://github.com/cncf/clowarden
