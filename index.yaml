@@ -24,6 +24,63 @@ entries:
           description: Issue processing email invitations
       artifacthub.io/images: |
         - name: dbmigrator
+          image: ghcr.io/cncf/clowarden/dbmigrator:v0.2.1
+        - name: server
+          image: ghcr.io/cncf/clowarden/server:v0.2.1
+      artifacthub.io/links: |
+        - name: source
+          url: https://github.com/cncf/clowarden
+        - name: support
+          url: https://github.com/cncf/clowarden/issues
+    apiVersion: v2
+    appVersion: 0.2.0
+    created: "2025-07-07T10:53:47.48003532Z"
+    dependencies:
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: https://charts.helm.sh/stable
+      version: 8.2.1
+    description: CLOWarden is a tool that manages access to resources across multiple
+      services
+    digest: ec10be4e3388718f0d5a98299d9eb146eec8d9df75b965a9bb75843f2726cdb9
+    home: https://clowarden.io
+    icon: https://raw.githubusercontent.com/cncf/clowarden/main/docs/logo/logo.png
+    keywords:
+    - clowarden
+    kubeVersion: '>= 1.19.0-0'
+    maintainers:
+    - email: tegioz@icloud.com
+      name: Sergio
+    - email: cynthiasg@icloud.com
+      name: Cintia
+    name: clowarden
+    type: application
+    urls:
+    - https://github.com/cncf/clowarden/releases/download/clowarden-chart-0.2.1/clowarden-0.2.1.tgz
+    version: 0.2.1
+  - annotations:
+      artifacthub.io/category: skip-prediction
+      artifacthub.io/changes: |
+        - kind: added
+          description: Validate users detected in some kinds of changes
+        - kind: changed
+          description: Improve support for multiple organizations
+        - kind: changed
+          description: Migrate config to figment
+        - kind: changed
+          description: Some refactoring in jobs module
+        - kind: changed
+          description: Update documentation
+        - kind: changed
+          description: Bump Alpine to 3.21.0
+        - kind: changed
+          description: Bump Rust to 1.83
+        - kind: changed
+          description: Upgrade backend and frontend dependencies
+        - kind: fixed
+          description: Issue processing email invitations
+      artifacthub.io/images: |
+        - name: dbmigrator
           image: ghcr.io/cncf/clowarden/dbmigrator:v0.2.0
         - name: server
           image: ghcr.io/cncf/clowarden/server:v0.2.0
@@ -246,4 +303,4 @@ entries:
     urls:
     - https://github.com/cncf/clowarden/releases/download/clowarden-chart-0.1.0/clowarden-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-02T09:12:34.407123465Z"
+generated: "2025-07-07T10:53:47.480063703Z"
