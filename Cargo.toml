@@ -10,7 +10,7 @@ members = [
 version = "0.2.0"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 
 [workspace.dependencies]
 anyhow = "1.0.98"
@@ -20,7 +20,7 @@ async-trait = "0.1.88"
 axum = { version = "0.8.4", features = ["macros"] }
 base64 = "0.22.1"
 cached = { version = "0.55.1", features = ["async"] }
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 deadpool-postgres = { version = "0.14.1", features = ["serde"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
@@ -46,7 +46,7 @@ time = { version = "0.3.41", features = [
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.45.1", features = [
+tokio = { version = "1.46.1", features = [
     "macros",
     "process",
     "rt-multi-thread",
