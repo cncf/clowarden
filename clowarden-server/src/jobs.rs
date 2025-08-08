@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     sync::mpsc,
     task::JoinHandle,
-    time::{self, sleep, MissedTickBehavior},
+    time::{self, sleep, timeout, MissedTickBehavior},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument};
@@ -31,6 +31,9 @@ use crate::{
     github::{self, Ctx, DynGH},
     tmpl,
 };
+
+/// Maximum time allowed for handling a single job (in seconds).
+const JOB_TIMEOUT: u64 = 60 * 60; // 60 minutes
 
 /// How often periodic reconcile jobs should be scheduled (in seconds).
 const RECONCILE_FREQUENCY: u64 = 60 * 60; // Every hour
@@ -206,9 +209,22 @@ impl OrgWorker {
 
                     // Pick next job from the queue and process it
                     Some(job) = org_jobs_rx.recv() => {
+                        let job_timeout = Duration::from_secs(JOB_TIMEOUT);
                         match job {
-                            Job::Reconcile(input) => _ = self.handle_reconcile_job(input).await,
-                            Job::Validate(input) => _ = self.handle_validate_job(input).await,
+                            Job::Reconcile(input) => {
+                                match timeout(job_timeout, self.handle_reconcile_job(input.clone())).await {
+                                    Ok(Ok(())) => {},
+                                    Ok(Err(err)) => error!(?err, ?input, "error handling reconcile job"),
+                                    Err(_) => error!(?input, "reconcile job timed out"),
+                                }
+                            }
+                            Job::Validate(input) => {
+                                match timeout(job_timeout, self.handle_validate_job(input.clone())).await {
+                                    Ok(Ok(())) => {},
+                                    Ok(Err(err)) => error!(?err, ?input, "error handling validate job"),
+                                    Err(_) => error!(?input, "validate job timed out"),
+                                }
+                            }
                         }
                     }
 
