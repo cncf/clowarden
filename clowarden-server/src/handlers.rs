@@ -3,17 +3,17 @@
 
 use std::{fmt::Display, path::Path};
 
-use anyhow::{format_err, Error, Result};
+use anyhow::{Error, Result, format_err};
 use axum::{
+    Router,
     body::{Body, Bytes},
     extract::{FromRef, RawQuery, State},
     http::{
-        header::{CACHE_CONTROL, CONTENT_TYPE},
         HeaderMap, HeaderValue, Response, StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
     },
     response::{IntoResponse, Redirect},
     routing::{get, get_service, post},
-    Router,
 };
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
@@ -103,13 +103,13 @@ pub(crate) fn setup_router(
         .fallback_service(get_service(audit_index));
 
     // Setup basic auth
-    if let Some(basic_auth) = &cfg.server.basic_auth {
-        if basic_auth.enabled {
-            audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(
-                &basic_auth.username,
-                &basic_auth.password,
-            ));
-        }
+    if let Some(basic_auth) = &cfg.server.basic_auth
+        && basic_auth.enabled
+    {
+        audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(
+            &basic_auth.username,
+            &basic_auth.password,
+        ));
     }
 
     // Setup main router
@@ -182,7 +182,7 @@ async fn event(
             return Err((StatusCode::BAD_REQUEST, err.to_string()));
         }
         Err(EventError::InvalidBody(err)) => {
-            return Err((StatusCode::BAD_REQUEST, EventError::InvalidBody(err).to_string()))
+            return Err((StatusCode::BAD_REQUEST, EventError::InvalidBody(err).to_string()));
         }
         Err(EventError::UnsupportedEvent) => return Ok(()),
     };

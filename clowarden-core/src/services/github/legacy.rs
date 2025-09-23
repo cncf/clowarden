@@ -3,7 +3,7 @@
 //! state instances from the legacy configuration.
 
 pub(crate) mod sheriff {
-    use anyhow::{format_err, Context, Error, Result};
+    use anyhow::{Context, Error, Result, format_err};
     use serde::{Deserialize, Serialize};
 
     use crate::{

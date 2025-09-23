@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result, format_err};
 use as_any::Downcast;
 use async_trait::async_trait;
 use state::Changes;
@@ -193,10 +193,10 @@ impl ServiceHandler for Handler {
                     // the team is deleted from GitHub
                     for entry in &changes_applied {
                         let change = (*entry.change).downcast_ref::<DirectoryChange>();
-                        if let Some(DirectoryChange::TeamRemoved(team_removed_name)) = change {
-                            if team_name == team_removed_name {
-                                continue 'changes_repositories;
-                            }
+                        if let Some(DirectoryChange::TeamRemoved(team_removed_name)) = change
+                            && team_name == team_removed_name
+                        {
+                            continue 'changes_repositories;
                         }
                     }
 

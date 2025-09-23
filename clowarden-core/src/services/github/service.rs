@@ -2,12 +2,13 @@
 
 use std::sync::Arc;
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result, format_err};
 use async_trait::async_trait;
 use cached::proc_macro::cached;
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
+    Client,
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     types::{
         Affiliation, Collaborator, MinimalRepository, Order, OrganizationInvitation, OrgsListMembersFilter,
@@ -17,9 +18,8 @@ use octorust::{
         TeamsAddUpdateMembershipUserInOrgRequest, TeamsAddUpdateRepoPermissionsInOrgRequest,
         TeamsCreateRequest, TeamsListMembersInOrgRole,
     },
-    Client,
 };
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::{
     cfg::{GitHubApp, Organization},

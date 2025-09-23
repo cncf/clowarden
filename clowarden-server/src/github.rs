@@ -8,12 +8,12 @@ use axum::http::HeaderValue;
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
+    Client,
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     types::{
         ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, JobStatus,
         OrganizationSimple, PullRequestData, PullsUpdateReviewRequest, Repository, SimpleUser,
     },
-    Client,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

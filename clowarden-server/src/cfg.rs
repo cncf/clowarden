@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use deadpool_postgres::Config as Db;
 use figment::{
-    providers::{Env, Format, Serialized, Yaml},
     Figment,
+    providers::{Env, Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
 

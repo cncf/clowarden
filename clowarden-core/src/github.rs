@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result, format_err};
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as b64};
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
-    auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
     Client,
+    auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
 };
 
 use crate::cfg::{GitHubApp, Organization};

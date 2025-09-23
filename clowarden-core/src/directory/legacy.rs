@@ -58,14 +58,16 @@ impl Cfg {
 }
 
 pub mod sheriff {
-    use super::VALID_TEAM_NAME;
+    use anyhow::{Context, Error, Result, format_err};
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         directory::{TeamName, UserName},
         github::{DynGH, Source},
         multierror::MultiError,
     };
-    use anyhow::{format_err, Context, Error, Result};
-    use serde::{Deserialize, Serialize};
+
+    use super::VALID_TEAM_NAME;
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file
@@ -226,12 +228,13 @@ pub mod sheriff {
 }
 
 pub(crate) mod cncf {
+    use anyhow::{Context, Error, Result, format_err};
+    use serde::{Deserialize, Serialize};
+
     use crate::{
         github::{DynGH, Source},
         multierror::MultiError,
     };
-    use anyhow::{format_err, Context, Error, Result};
-    use serde::{Deserialize, Serialize};
 
     /// CNCF people configuration.
     /// https://github.com/cncf/people/tree/main#listing-format
@@ -265,7 +268,7 @@ pub(crate) mod cncf {
             for (i, user) in self.people.iter().enumerate() {
                 // Name must be provided
                 if user.name.is_empty() {
-                    merr.push(format_err!("user[{}]: name must be provided", i));
+                    merr.push(format_err!("user[{i}]: name must be provided"));
                 }
             }
 

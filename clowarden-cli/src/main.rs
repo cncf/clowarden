@@ -3,8 +3,9 @@
 
 use std::{env, fs::File, path::PathBuf, sync::Arc};
 
-use anyhow::{format_err, Result};
+use anyhow::{Result, format_err};
 use clap::{Args, Parser, Subcommand};
+use tracing_subscriber::EnvFilter;
 
 use clowarden_core::{
     cfg::Legacy,
@@ -12,13 +13,11 @@ use clowarden_core::{
     github::{GHApi, Source},
     multierror,
     services::{
-        self,
+        self, Change,
         github::{
-            self,
+            self, State,
             service::{Ctx, SvcApi},
-            State,
         },
-        Change,
     },
 };
 
@@ -91,15 +90,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Setup logging
-    if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "clowarden_cli=debug");
-    }
-    tracing_subscriber::fmt::init();
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("clowarden_cli=debug"));
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Check if required Github token is present in environment
-    let github_token = match env::var(GITHUB_TOKEN) {
-        Err(_) => return Err(format_err!("{} not found in environment", GITHUB_TOKEN)),
-        Ok(token) => token,
+    let Ok(github_token) = env::var(GITHUB_TOKEN) else {
+        return Err(format_err!("{GITHUB_TOKEN} not found in environment"));
     };
 
     // Run command
