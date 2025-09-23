@@ -137,8 +137,8 @@ mod tests {
         directory::{DirectoryChange, Team},
         multierror::MultiError,
         services::{
-            github::state::{Repository, RepositoryChange, Role, Visibility},
             BaseRefConfigStatus, ChangeApplied, DynChange,
+            github::state::{Repository, RepositoryChange, Role, Visibility},
         },
     };
     use time::OffsetDateTime;

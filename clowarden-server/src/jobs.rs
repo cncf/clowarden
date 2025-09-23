@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     sync::mpsc,
     task::JoinHandle,
-    time::{self, sleep, timeout, MissedTickBehavior},
+    time::{self, MissedTickBehavior, sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument};

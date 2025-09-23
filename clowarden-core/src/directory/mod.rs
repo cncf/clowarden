@@ -7,7 +7,7 @@ use std::{
     sync::LazyLock,
 };
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result, format_err};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

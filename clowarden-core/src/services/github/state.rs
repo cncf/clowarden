@@ -8,7 +8,7 @@ use std::{
     sync::LazyLock,
 };
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result, format_err};
 use futures::{
     future,
     stream::{self, StreamExt},
@@ -283,15 +283,15 @@ impl State {
             let mut highest_team_role = None;
             if let Some(teams) = &repo.teams {
                 for (team_name, role) in teams {
-                    if let Some(team) = self.directory.get_team(team_name) {
-                        if team.maintainers.contains(user_name) || team.members.contains(user_name) {
-                            if highest_team_role.is_none() {
+                    if let Some(team) = self.directory.get_team(team_name)
+                        && (team.maintainers.contains(user_name) || team.members.contains(user_name))
+                    {
+                        if highest_team_role.is_none() {
+                            highest_team_role = Some((team_name.clone(), role.clone()));
+                        } else {
+                            let highest_role = highest_team_role.as_ref().unwrap().1.clone();
+                            if role > &highest_role {
                                 highest_team_role = Some((team_name.clone(), role.clone()));
-                            } else {
-                                let highest_role = highest_team_role.as_ref().unwrap().1.clone();
-                                if role > &highest_role {
-                                    highest_team_role = Some((team_name.clone(), role.clone()));
-                                }
                             }
                         }
                     }
@@ -342,13 +342,13 @@ impl State {
             if let Some(collaborators) = &repo.collaborators {
                 for (user_name, user_role) in collaborators {
                     let highest_team_role = get_highest_team_role(repo, user_name);
-                    if let Some((team_name, highest_team_role)) = highest_team_role {
-                        if &highest_team_role > user_role {
-                            merr.push(format_err!(
-                                "repo[{id}]: collaborator {user_name} already has {highest_team_role} \
-                                access from team {team_name}"
-                            ));
-                        }
+                    if let Some((team_name, highest_team_role)) = highest_team_role
+                        && &highest_team_role > user_role
+                    {
+                        merr.push(format_err!(
+                            "repo[{id}]: collaborator {user_name} already has {highest_team_role} \
+                            access from team {team_name}"
+                        ));
                     }
                 }
             }
@@ -745,20 +745,20 @@ impl Change for RepositoryChange {
                     repo.name,
                     repo.visibility.clone().unwrap_or_default()
                 )?;
-                if let Some(teams) = &repo.teams {
-                    if !teams.is_empty() {
-                        write!(s, "\n\t- Teams")?;
-                        for (team_name, role) in teams {
-                            write!(s, "\n\t\t- **{team_name}**: *{role}*")?;
-                        }
+                if let Some(teams) = &repo.teams
+                    && !teams.is_empty()
+                {
+                    write!(s, "\n\t- Teams")?;
+                    for (team_name, role) in teams {
+                        write!(s, "\n\t\t- **{team_name}**: *{role}*")?;
                     }
                 }
-                if let Some(collaborators) = &repo.collaborators {
-                    if !collaborators.is_empty() {
-                        write!(s, "\n\t- Collaborators")?;
-                        for (user_name, role) in collaborators {
-                            write!(s, "\n\t\t- **{user_name}**: *{role}*")?;
-                        }
+                if let Some(collaborators) = &repo.collaborators
+                    && !collaborators.is_empty()
+                {
+                    write!(s, "\n\t- Collaborators")?;
+                    for (user_name, role) in collaborators {
+                        write!(s, "\n\t\t- **{user_name}**: *{role}*")?;
                     }
                 }
             }
