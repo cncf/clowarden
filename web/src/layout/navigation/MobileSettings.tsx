@@ -1,6 +1,6 @@
 import classNames from 'classnames';
 import { ExternalLink, useOutsideClick } from 'clo-ui';
-import { useRef, useState } from 'react';
+import { RefObject, useRef, useState } from 'react';
 import { BsList } from 'react-icons/bs';
 import { FaGithub } from 'react-icons/fa';
 
@@ -9,8 +9,10 @@ import ThemeMode from './ThemeMode';
 
 const MobileSettings = () => {
   const [visibleDropdown, setVisibleDropdown] = useState(false);
-  const ref = useRef(null);
-  useOutsideClick([ref], visibleDropdown, () => setVisibleDropdown(false));
+  const ref = useRef<HTMLDivElement | null>(null);
+  useOutsideClick([ref as unknown as RefObject<HTMLElement>], visibleDropdown, () =>
+    setVisibleDropdown(false)
+  );
 
   return (
     <div ref={ref} className="d-flex d-md-none ms-auto position-relative">

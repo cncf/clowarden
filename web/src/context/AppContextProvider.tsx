@@ -1,6 +1,6 @@
 import { detectActiveThemeMode, useSystemThemeMode } from 'clo-ui';
 import { isNull } from 'lodash';
-import { createContext, Dispatch, useContext, useEffect, useReducer, useState } from 'react';
+import { createContext, Dispatch, ReactNode, useContext, useEffect, useReducer, useState } from 'react';
 
 import { Prefs, SortBy, SortDirection } from '../types';
 import lsStorage from '../utils/localStoragePreferences';
@@ -10,7 +10,7 @@ interface AppState {
 }
 
 interface Props {
-  children: JSX.Element;
+  children: ReactNode;
 }
 
 const initialState: AppState = {

@@ -116,6 +116,7 @@ export interface ReconciliationStatus {
 }
 
 export interface SearchTipItem {
-  content: JSX.Element | string;
+  content: ReactNode;
   example: string;
 }
+import { ReactNode } from 'react';
