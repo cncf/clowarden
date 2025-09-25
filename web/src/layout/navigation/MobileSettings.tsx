@@ -10,9 +10,7 @@ import ThemeMode from './ThemeMode';
 const MobileSettings = () => {
   const [visibleDropdown, setVisibleDropdown] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-  useOutsideClick([ref as unknown as RefObject<HTMLElement>], visibleDropdown, () =>
-    setVisibleDropdown(false)
-  );
+  useOutsideClick([ref as unknown as RefObject<HTMLElement>], visibleDropdown, () => setVisibleDropdown(false));
 
   return (
     <div ref={ref} className="d-flex d-md-none ms-auto position-relative">
