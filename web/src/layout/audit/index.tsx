@@ -367,45 +367,65 @@ const Audit = () => {
 
                 {changes && (
                   <>
-                    {isEmpty(changes) && !isNull(apiError) ? (
-                      <NoData>
-                        <div className="h4">
-                          We're sorry!
-                          <p className="h6 mb-0 mt-3 lh-base">
-                            <span> We can't seem to find any changes that match your search </span>
-                            {!isEmpty(filters) ? <span className="ps-1">with the selected filters</span> : <>.</>}
-                          </p>
-                          <p className="h6 mb-0 mt-5 lh-base">
-                            You can{' '}
-                            {!isEmpty(filters) ? (
-                              <button
-                                className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
-                                onClick={onResetFilters}
-                                aria-label="Reset filters"
-                              >
-                                <u>reset the filters</u>
-                              </button>
-                            ) : (
-                              <button
-                                className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
-                                onClick={() => {
-                                  navigate({
-                                    pathname: '/audit/',
-                                    search: prepareQueryString({
-                                      pageNumber: 1,
-                                      filters: {},
-                                    }),
-                                  });
-                                }}
-                                aria-label="Browse all packages"
-                              >
-                                <u>browse all changes</u>
-                              </button>
-                            )}
-                            <> or try a new search.</>
-                          </p>
-                        </div>
-                      </NoData>
+                    {isEmpty(changes) ? (
+                      <>
+                        {!isNull(apiError) ? (
+                          <NoData>
+                            <div className="h4">
+                              We're sorry!
+                              <p className="h6 mb-0 mt-3 lh-base">
+                                <span>
+                                  {' '}
+                                  We can't seem to find any changes that match your search{' '}
+                                </span>
+                                {!isEmpty(filters) ? (
+                                  <span className="ps-1">with the selected filters</span>
+                                ) : (
+                                  <>.</>
+                                )}
+                              </p>
+                              <p className="h6 mb-0 mt-5 lh-base">
+                                You can{' '}
+                                {!isEmpty(filters) ? (
+                                  <button
+                                    className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
+                                    onClick={onResetFilters}
+                                    aria-label="Reset filters"
+                                  >
+                                    <u>reset the filters</u>
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
+                                    onClick={() => {
+                                      navigate({
+                                        pathname: '/audit/',
+                                        search: prepareQueryString({
+                                          pageNumber: 1,
+                                          filters: {},
+                                        }),
+                                      });
+                                    }}
+                                    aria-label="Browse all packages"
+                                  >
+                                    <u>browse all changes</u>
+                                  </button>
+                                )}
+                                <> or try a new search.</>
+                              </p>
+                            </div>
+                          </NoData>
+                        ) : (
+                          <NoData>
+                            <div className="h4">
+                              No changes recorded yet for this selection.
+                              <p className="h6 mb-0 mt-3 lh-base">
+                                Adjust filters or pick another organization to explore activity.
+                              </p>
+                            </div>
+                          </NoData>
+                        )}
+                      </>
                     ) : (
                       <div className={`ms-3 ${styles.list}`}>
                         <table className={`table table-bordered table-md mb-0 ${styles.table}`}>
