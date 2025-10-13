@@ -374,15 +374,8 @@ const Audit = () => {
                             <div className="h4">
                               We're sorry!
                               <p className="h6 mb-0 mt-3 lh-base">
-                                <span>
-                                  {' '}
-                                  We can't seem to find any changes that match your search{' '}
-                                </span>
-                                {!isEmpty(filters) ? (
-                                  <span className="ps-1">with the selected filters</span>
-                                ) : (
-                                  <>.</>
-                                )}
+                                <span> We can't seem to find any changes that match your search </span>
+                                {!isEmpty(filters) ? <span className="ps-1">with the selected filters</span> : <>.</>}
                               </p>
                               <p className="h6 mb-0 mt-5 lh-base">
                                 You can{' '}
