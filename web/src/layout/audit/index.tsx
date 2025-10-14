@@ -1,17 +1,17 @@
 import classNames from 'classnames';
-import {
-  DropdownOnHover,
-  ElementWithTooltip,
-  Loading,
-  NoData,
-  Pagination,
-  scrollToTop,
-  Sidebar,
-  SortOptions,
-  SubNavbar,
-  useBreakpointDetect,
-} from 'clo-ui';
-import { isEmpty, isNull, isUndefined } from 'lodash';
+import { DropdownOnHover } from 'clo-ui/components/DropdownOnHover';
+import { ElementWithTooltip } from 'clo-ui/components/ElementWithTooltip';
+import { Loading } from 'clo-ui/components/Loading';
+import { NoData } from 'clo-ui/components/NoData';
+import { Pagination } from 'clo-ui/components/Pagination';
+import { Sidebar } from 'clo-ui/components/Sidebar';
+import { SortOptions } from 'clo-ui/components/SortOptions';
+import { SubNavbar } from 'clo-ui/components/SubNavbar';
+import { useBreakpointDetect } from 'clo-ui/hooks/useBreakpointDetect';
+import { scrollToTop } from 'clo-ui/utils/scrollToTop';
+import isEmpty from 'lodash/isEmpty';
+import isNull from 'lodash/isNull';
+import isUndefined from 'lodash/isUndefined';
 import moment from 'moment';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import { AiFillCheckCircle, AiFillCloseCircle } from 'react-icons/ai';

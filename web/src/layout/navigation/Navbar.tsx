@@ -1,4 +1,6 @@
-import { ExternalLink, Navbar as NavbarWrapper, scrollToTop } from 'clo-ui';
+import { ExternalLink } from 'clo-ui/components/ExternalLink';
+import { Navbar as NavbarWrapper } from 'clo-ui/components/Navbar';
+import { scrollToTop } from 'clo-ui/utils/scrollToTop';
 import { FaGithub } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
 

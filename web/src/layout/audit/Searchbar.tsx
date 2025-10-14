@@ -1,4 +1,5 @@
-import { scrollToTop, Searchbar as SearchbarForm } from 'clo-ui';
+import { Searchbar as SearchbarForm } from 'clo-ui/components/Searchbar';
+import { scrollToTop } from 'clo-ui/utils/scrollToTop';
 import { useEffect, useState } from 'react';
 // import { FaRegQuestionCircle } from 'react-icons/fa';
 import { useNavigate, useSearchParams } from 'react-router-dom';

@@ -1,5 +1,6 @@
-import { SelectedFilterBadge } from 'clo-ui';
-import { isEmpty, isUndefined } from 'lodash';
+import { SelectedFilterBadge } from 'clo-ui/components/SelectedFilterBadge';
+import isEmpty from 'lodash/isEmpty';
+import isUndefined from 'lodash/isUndefined';
 import { Fragment } from 'react';
 import { IoMdCloseCircleOutline } from 'react-icons/io';
 
