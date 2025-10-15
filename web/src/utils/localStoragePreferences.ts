@@ -1,5 +1,6 @@
-import { detectActiveThemeMode } from 'clo-ui';
-import { isEmpty, sortBy } from 'lodash';
+import { detectActiveThemeMode } from 'clo-ui/utils/detectActiveThemeMode';
+import isEmpty from 'lodash/isEmpty';
+import sortBy from 'lodash/sortBy';
 
 import { DEFAULT_SORT_BY, DEFAULT_SORT_DIRECTION } from '../data';
 import { Prefs } from '../types';

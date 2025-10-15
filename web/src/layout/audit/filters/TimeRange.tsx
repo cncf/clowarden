@@ -1,4 +1,4 @@
-import { isNull } from 'lodash';
+import isNull from 'lodash/isNull';
 import { ChangeEvent, useRef } from 'react';
 
 import { DATE_RANGE, DEFAULT_TIME_RANGE } from '../../../data';

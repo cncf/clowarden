@@ -1,4 +1,4 @@
-import { FilterSection } from 'clo-ui';
+import { FilterSection } from 'clo-ui/components/FilterSection';
 
 import { ChangeKind, FilterKind, Option, SearchTipItem, Service, SortBy, SortDirection, SortOption } from './types';
 

@@ -1,5 +1,8 @@
-import { FilterSection, FiltersSection, InputFiltersSection } from 'clo-ui';
-import { isEmpty, isUndefined } from 'lodash';
+import { FilterSection } from 'clo-ui/components/FilterSection';
+import { FiltersSection } from 'clo-ui/components/FiltersSection';
+import { InputFiltersSection } from 'clo-ui/components/InputFiltersSection';
+import isEmpty from 'lodash/isEmpty';
+import isUndefined from 'lodash/isUndefined';
 import React from 'react';
 import { IoMdCloseCircleOutline } from 'react-icons/io';
 

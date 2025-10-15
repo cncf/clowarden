@@ -1,5 +1,7 @@
-import { isEmpty, isNull, isUndefined } from 'lodash';
 import isArray from 'lodash/isArray';
+import isEmpty from 'lodash/isEmpty';
+import isNull from 'lodash/isNull';
+import isUndefined from 'lodash/isUndefined';
 
 import { DEFAULT_SORT_BY, DEFAULT_SORT_DIRECTION, DEFAULT_TIME_RANGE } from '../data';
 import { Change, Error, ErrorKind, SearchQuery } from '../types';
