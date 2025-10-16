@@ -17,10 +17,11 @@ anyhow = "1.0.100"
 as-any = "0.3.2"
 askama = "0.14.0"
 async-trait = "0.1.89"
-axum = { version = "0.8.4", features = ["macros"] }
+axum = { version = "0.8.6", features = ["macros"] }
 base64 = "0.22.1"
+bytes = "1.10.1"
 cached = { version = "0.56.0", features = ["async"] }
-clap = { version = "4.5.48", features = ["derive"] }
+clap = { version = "4.5.49", features = ["derive"] }
 clowarden-core = { path = "../clowarden-core" }
 deadpool-postgres = { version = "0.14.1", features = ["serde"] }
 figment = { version = "0.10.19", features = ["yaml", "env"] }
@@ -30,23 +31,23 @@ hex = "0.4.3"
 mime = "0.3.17"
 mockall = "0.13.1"
 octorust = { git = "https://github.com/tegioz/third-party-api-clients.git" }
-openssl = { version = "0.10.73", features = ["vendored"] }
-pem = "3.0.5"
-postgres-openssl = "0.5.1"
-regex = "1.11.2"
-serde = { version = "1.0.226", features = ["derive"] }
+openssl = { version = "0.10.74", features = ["vendored"] }
+pem = "3.0.6"
+postgres-openssl = "0.5.2"
+regex = "1.12.2"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_qs = "0.15.0"
 serde_yaml = "0.9.34"
 sha2 = "0.10.9"
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 time = { version = "0.3.44", features = [
     "formatting",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.47.1", features = [
+tokio = { version = "1.48.0", features = [
     "macros",
     "process",
     "rt-multi-thread",
@@ -54,7 +55,7 @@ tokio = { version = "1.47.1", features = [
     "sync",
     "time",
 ] }
-tokio-postgres = { version = "0.7.13", features = [
+tokio-postgres = { version = "0.7.15", features = [
     "with-uuid-1",
     "with-serde_json-1",
     "with-time-0_3",
