@@ -2,8 +2,8 @@ apiVersion: v2
 name: clowarden
 description: CLOWarden is a tool that manages access to resources across multiple services
 type: application
-version: 0.2.1
-appVersion: 0.2.0
+version: 0.2.2
+appVersion: 0.2.2
 kubeVersion: ">= 1.19.0-0"
 home: https://clowarden.io
 icon: https://raw.githubusercontent.com/cncf/clowarden/main/docs/logo/logo.png
@@ -23,28 +23,22 @@ annotations:
   artifacthub.io/category: skip-prediction
   artifacthub.io/changes: |
     - kind: added
-      description: Validate users detected in some kinds of changes
+      description: Timeout for jobs handling
     - kind: changed
-      description: Improve support for multiple organizations
+      description: Display placeholder on table when there are no changes
     - kind: changed
-      description: Migrate config to figment
+      description: Update Bitnami image reference
     - kind: changed
-      description: Some refactoring in jobs module
+      description: Bump Alpine to 3.22.2
     - kind: changed
-      description: Update documentation
-    - kind: changed
-      description: Bump Alpine to 3.21.0
-    - kind: changed
-      description: Bump Rust to 1.83
+      description: Bump Rust to 1.90
     - kind: changed
       description: Upgrade backend and frontend dependencies
-    - kind: fixed
-      description: Issue processing email invitations
   artifacthub.io/images: |
     - name: dbmigrator
-      image: ghcr.io/cncf/clowarden/dbmigrator:v0.2.1
+      image: ghcr.io/cncf/clowarden/dbmigrator:v0.2.2
     - name: server
-      image: ghcr.io/cncf/clowarden/server:v0.2.1
+      image: ghcr.io/cncf/clowarden/server:v0.2.2
   artifacthub.io/links: |
     - name: source
       url: https://github.com/cncf/clowarden
