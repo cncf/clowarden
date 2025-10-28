@@ -2,7 +2,7 @@ apiVersion: v2
 name: clowarden
 description: CLOWarden is a tool that manages access to resources across multiple services
 type: application
-version: 0.2.2
+version: 0.2.3-0
 appVersion: 0.2.2
 kubeVersion: ">= 1.19.0-0"
 home: https://clowarden.io
@@ -16,8 +16,8 @@ maintainers:
     email: cynthiasg@icloud.com
 dependencies:
   - name: postgresql
-    version: 8.2.1
-    repository: https://charts.helm.sh/stable
+    version: 18.0.15
+    repository: https://charts.bitnami.com/bitnami
     condition: postgresql.enabled
 annotations:
   artifacthub.io/category: skip-prediction
