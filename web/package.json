@@ -6,7 +6,7 @@
   "type": "module",
   "dependencies": {
     "classnames": "^2.5.1",
-    "clo-ui": "https://github.com/cncf/clo-ui.git#v0.5.1",
+    "clo-ui": "https://github.com/cncf/clo-ui.git#v0.5.4",
     "lodash": "^4.17.21",
     "moment": "^2.30.1",
     "react": "^18.3.1",
@@ -21,49 +21,42 @@
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.20",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.1.0",
+    "@vitest/coverage-v8": "^4.0.4",
     "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "globals": "^16.4.0",
+    "jsdom": "^27.0.1",
     "postcss": "^8.5.6",
     "prettier": "^3.6.2",
-    "react-scripts": "5.0.1",
     "sass": "^1.93.2",
     "shx": "^0.4.0",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.44.1"
-  },
-  "resolutions": {
-    "react-scripts/**/core-js-pure": "3.45.1"
+    "typescript-eslint": "^8.44.1",
+    "vite": "^7.1.12",
+    "vitest": "^4.0.4"
   },
   "scripts": {
     "copy:static": "shx rm -rf src/static && shx mkdir src/static && shx cp -r public/static/* src",
     "copy:root-index": "cp build/audit/root_index.html build/index.html && shx rm build/audit/root_index.html",
     "copy:images": "shx mkdir -p build/media && cp -r build/audit/media/*.png build/media",
     "copy:manifest": "mv build/audit/manifest.json build",
-    "analyze": "source-map-explorer 'build/static/js/*.js'",
-    "start": "yarn copy:static && DANGEROUSLY_DISABLE_HOST_CHECK=true DISABLE_ESLINT_PLUGIN=true react-scripts start",
-    "build": "yarn copy:static && BUILD_PATH=./build/audit PUBLIC_URL=/audit INLINE_RUNTIME_CHUNK=false DISABLE_ESLINT_PLUGIN=true IMAGE_INLINE_SIZE_LIMIT=0 react-scripts build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && yarn copy:root-index && yarn copy:images && yarn copy:manifest",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
+    "analyze": "source-map-explorer --no-border-checks 'build/audit/js/*.js'",
+    "start": "yarn copy:static && vite",
+    "build": "yarn copy:static && vite build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && yarn copy:root-index && yarn copy:images && yarn copy:manifest",
+    "preview": "vite preview",
+    "test": "vitest --run --passWithNoTests",
     "lint": "eslint src --max-warnings 0",
     "lint:fix": "eslint src --max-warnings 0 --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,scss,md}\"",
     "format:diff": "prettier --list-different \"src/**/*.{js,jsx,ts,tsx,json,css,scss,md}\""
-  },
-  "proxy": "http://127.0.0.1:9000",
-  "jest": {
-    "moduleNameMapper": {
-      "\\.(jpg|ico|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/__mocks__/fileMock.js",
-      "\\.(css|less)$": "<rootDir>/__mocks__/fileMock.js"
-    }
   },
   "browserslist": {
     "production": [
