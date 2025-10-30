@@ -9,10 +9,10 @@ import { SortOptions } from 'clo-ui/components/SortOptions';
 import { SubNavbar } from 'clo-ui/components/SubNavbar';
 import { useBreakpointDetect } from 'clo-ui/hooks/useBreakpointDetect';
 import { scrollToTop } from 'clo-ui/utils/scrollToTop';
+import { format, fromUnixTime } from 'date-fns';
 import isEmpty from 'lodash/isEmpty';
 import isNull from 'lodash/isNull';
 import isUndefined from 'lodash/isUndefined';
-import moment from 'moment';
 import { Fragment, useContext, useEffect, useState } from 'react';
 import { AiFillCheckCircle, AiFillCloseCircle } from 'react-icons/ai';
 import { FaFilter } from 'react-icons/fa';
@@ -734,7 +734,7 @@ const Audit = () => {
                                       </div>
                                     </td>
                                     <td className="text-center align-middle">
-                                      {moment.unix(change.applied_at).format('L LT')}
+                                      {format(fromUnixTime(change.applied_at), 'MM/dd/yyyy h:mm a')}
                                     </td>
                                     <td className="text-center align-middle">
                                       {!isUndefined(change.reconciliation.pr_number)
