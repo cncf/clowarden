@@ -69,9 +69,6 @@ export default defineConfig({
             if (id.includes('lodash')) {
               return 'vendor-lodash';
             }
-            if (id.includes('moment')) {
-              return 'vendor-moment';
-            }
             return 'vendor';
           }
         },
@@ -91,4 +88,3 @@ export default defineConfig({
     css: true,
   },
 });
-
