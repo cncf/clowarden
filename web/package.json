@@ -51,7 +51,6 @@
     "analyze": "source-map-explorer --no-border-checks 'build/audit/js/*.js'",
     "start": "yarn copy:static && vite",
     "build": "yarn copy:static && vite build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && yarn copy:root-index && yarn copy:images && yarn copy:manifest",
-    "preview": "vite preview",
     "test": "vitest --run --passWithNoTests",
     "lint": "eslint src --max-warnings 0",
     "lint:fix": "eslint src --max-warnings 0 --fix",
