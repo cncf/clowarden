@@ -1,6 +1,9 @@
 //! This module defines an abstraction layer over the GitHub API.
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{Context, Result, format_err};
 use async_trait::async_trait;
@@ -11,6 +14,10 @@ use octorust::{
     Client,
     auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
 };
+use reqwest_conditional_middleware::ConditionalMiddleware;
+use reqwest_middleware::ClientBuilder;
+use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
+use reqwest_tracing::TracingMiddleware;
 
 use crate::cfg::{GitHubApp, Organization};
 
@@ -29,6 +36,8 @@ pub type DynGH = Arc<dyn GH + Send + Sync>;
 /// GH implementation backed by the GitHub API.
 #[derive(Default)]
 pub struct GHApi {
+    clients: RwLock<HashMap<Option<i64>, Arc<Client>>>,
+
     app_credentials: Option<JWTCredentials>,
     token: Option<String>,
 }
@@ -57,25 +66,17 @@ impl GHApi {
         })
     }
 
-    /// Setup GitHub API client for the installation id provided (if any).
-    fn setup_client(&self, inst_id: Option<i64>) -> Result<Client> {
-        let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    /// Get the GitHub API client for the installation id provided (if any), reusing
+    /// cached instances when available and creating a new one otherwise.
+    fn get_client(&self, inst_id: Option<i64>) -> Result<Arc<Client>> {
+        if let Some(client) = self.clients.read().unwrap().get(&inst_id).cloned() {
+            return Ok(client);
+        }
 
-        let credentials = if let Some(inst_id) = inst_id {
-            let Some(app_creds) = self.app_credentials.clone() else {
-                return Err(format_err!(
-                    "error setting up github client: app credentials not provided"
-                ));
-            };
-            Credentials::InstallationToken(InstallationTokenGenerator::new(inst_id, app_creds))
-        } else {
-            let Some(token) = self.token.clone() else {
-                return Err(format_err!("error setting up github client: token not provided"));
-            };
-            Credentials::Token(token)
-        };
-
-        Ok(Client::new(user_agent, credentials)?)
+        let client = Arc::new(setup_client(inst_id, &self.app_credentials, &self.token)?);
+        let mut clients = self.clients.write().unwrap();
+        let entry = clients.entry(inst_id).or_insert_with(|| client.clone());
+        Ok(entry.clone())
     }
 }
 
@@ -83,7 +84,7 @@ impl GHApi {
 impl GH for GHApi {
     /// [GH::get_file_content]
     async fn get_file_content(&self, src: &Source, path: &str) -> Result<String> {
-        let client = self.setup_client(src.inst_id)?;
+        let client = self.get_client(src.inst_id)?;
         let mut content = client
             .repos()
             .get_content_file(&src.owner, &src.repo, path, &src.ref_)
@@ -114,4 +115,45 @@ impl From<&Organization> for Source {
             ref_: org.branch.clone(),
         }
     }
+}
+
+/// HTTP client maximum retries.
+const HTTP_CLIENT_MAX_RETRIES: u32 = 1;
+
+/// Set up a GitHub API client for the installation id provided (if any).
+pub fn setup_client(
+    inst_id: Option<i64>,
+    app_credentials: &Option<JWTCredentials>,
+    token: &Option<String>,
+) -> Result<Client> {
+    // Build user agent string for identifying this service
+    let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+
+    // Determine which GitHub credentials to use
+    let credentials = if let Some(inst_id) = inst_id {
+        let Some(app_creds) = app_credentials.clone() else {
+            return Err(format_err!(
+                "error setting up github client: app credentials not provided"
+            ));
+        };
+        Credentials::InstallationToken(InstallationTokenGenerator::new(inst_id, app_creds))
+    } else {
+        let Some(token) = token.clone() else {
+            return Err(format_err!("error setting up github client: token not provided"));
+        };
+        Credentials::Token(token)
+    };
+
+    // Build the reqwest HTTP client used by octorust
+    let http = reqwest::Client::builder().build()?;
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(HTTP_CLIENT_MAX_RETRIES);
+    let middleware_client = ClientBuilder::new(http)
+        .with(TracingMiddleware::default())
+        .with(ConditionalMiddleware::new(
+            RetryTransientMiddleware::new_with_policy(retry_policy),
+            |req: &reqwest::Request| req.try_clone().is_some(),
+        ))
+        .build();
+
+    Ok(Client::custom(user_agent, credentials, middleware_client))
 }
