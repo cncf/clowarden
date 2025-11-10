@@ -1,6 +1,9 @@
 //! This module defines an abstraction layer over the GitHub API.
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -9,7 +12,7 @@ use axum::http::HeaderValue;
 use mockall::automock;
 use octorust::{
     Client,
-    auth::{Credentials, InstallationTokenGenerator, JWTCredentials},
+    auth::JWTCredentials,
     types::{
         ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, JobStatus,
         OrganizationSimple, PullRequestData, PullsUpdateReviewRequest, Repository, SimpleUser,
@@ -49,6 +52,7 @@ type FileName = String;
 /// GH implementation backed by the GitHub API.
 pub(crate) struct GHApi {
     app_credentials: JWTCredentials,
+    clients: RwLock<HashMap<i64, Arc<Client>>>,
 }
 
 impl GHApi {
@@ -59,16 +63,29 @@ impl GHApi {
         let app_credentials =
             JWTCredentials::new(gh_app.app_id, private_key).context("error setting up credentials")?;
 
-        Ok(Self { app_credentials })
+        Ok(Self {
+            app_credentials,
+            clients: RwLock::new(HashMap::new()),
+        })
     }
 
-    /// Setup GitHub API client for the installation id provided.
-    fn setup_client(&self, inst_id: i64) -> Result<Client> {
-        let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        let tg = InstallationTokenGenerator::new(inst_id, self.app_credentials.clone());
-        let credentials = Credentials::InstallationToken(tg);
+    /// Get the GitHub API client for the installation id provided, reusing cached
+    /// instances when available and creating a new one otherwise.
+    fn get_client(&self, inst_id: i64) -> Result<Arc<Client>> {
+        if let Some(client) = self.clients.read().unwrap().get(&inst_id).cloned() {
+            return Ok(client);
+        }
 
-        Ok(Client::new(user_agent, credentials)?)
+        let app_credentials = Some(self.app_credentials.clone());
+        let token: Option<String> = None;
+        let client = Arc::new(clowarden_core::github::setup_client(
+            Some(inst_id),
+            &app_credentials,
+            &token,
+        )?);
+        let mut clients = self.clients.write().unwrap();
+        let entry = clients.entry(inst_id).or_insert_with(|| client.clone());
+        Ok(entry.clone())
     }
 }
 
@@ -76,14 +93,14 @@ impl GHApi {
 impl GH for GHApi {
     /// [GH::create_check_run]
     async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()> {
-        let client = self.setup_client(ctx.inst_id)?;
+        let client = self.get_client(ctx.inst_id)?;
         _ = client.checks().create(&ctx.owner, &ctx.repo, body).await?;
         Ok(())
     }
 
     /// [GH::list_pr_files]
     async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>> {
-        let client = self.setup_client(ctx.inst_id)?;
+        let client = self.get_client(ctx.inst_id)?;
         let files = client
             .pulls()
             .list_all_files(&ctx.owner, &ctx.repo, pr_number)
@@ -99,7 +116,7 @@ impl GH for GHApi {
         let body = &PullsUpdateReviewRequest {
             body: body.to_string(),
         };
-        let client = self.setup_client(ctx.inst_id)?;
+        let client = self.get_client(ctx.inst_id)?;
         let comment = client.issues().create_comment(&ctx.owner, &ctx.repo, pr_number, body).await?;
         Ok(comment.id)
     }
