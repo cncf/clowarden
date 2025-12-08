@@ -31,6 +31,10 @@ CLOWarden expects GitHub events to be sent to the `/webhook/github` endpoint. In
 
 Once your GitHub application is ready you can install it in the organizations you need.
 
+### Storage
+
+The chart deploys PostgreSQL with persistent storage enabled by default. Your cluster must have either a default StorageClass with dynamic provisioning, or a pre-created PersistentVolume. For storage configuration options (disabling persistence, using a specific StorageClass, etc.), see the [Bitnami PostgreSQL chart documentation](https://github.com/bitnami/charts/tree/main/bitnami/postgresql#parameters).
+
 ## Installing the chart
 
 Create a values file (`my-values.yaml`) that includes the configuration values required for your GitHub application:
