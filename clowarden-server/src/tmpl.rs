@@ -116,10 +116,13 @@ impl<'a> ValidationSucceeded<'a> {
 }
 
 mod filters {
+    #![allow(clippy::inline_always, clippy::unused_self)]
+
     use anyhow::Error;
     use clowarden_core::multierror;
 
     /// Template filter that formats the error provided.
+    #[askama::filter_fn]
     pub(crate) fn format_error(err: &Error, _: &dyn askama::Values) -> askama::Result<String> {
         match multierror::format_error(err) {
             Ok(s) => Ok(s),

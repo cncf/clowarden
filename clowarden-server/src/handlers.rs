@@ -9,12 +9,13 @@ use axum::{
     body::{Body, Bytes},
     extract::{FromRef, RawQuery, State},
     http::{
-        HeaderMap, HeaderValue, Response, StatusCode,
-        header::{CACHE_CONTROL, CONTENT_TYPE},
+        HeaderMap, HeaderValue, Request, Response, StatusCode,
+        header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, WWW_AUTHENTICATE},
     },
     response::{IntoResponse, Redirect},
     routing::{get, get_service, post},
 };
+use base64::Engine;
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::JobStatus;
@@ -106,9 +107,21 @@ pub(crate) fn setup_router(
     if let Some(basic_auth) = &cfg.server.basic_auth
         && basic_auth.enabled
     {
-        audit_router = audit_router.layer(ValidateRequestHeaderLayer::basic(
-            &basic_auth.username,
-            &basic_auth.password,
+        let basic_auth_value = HeaderValue::try_from(format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", basic_auth.username, basic_auth.password))
+        ))?;
+        audit_router = audit_router.layer(ValidateRequestHeaderLayer::custom(
+            move |request: &mut Request<Body>| match request.headers().get(AUTHORIZATION) {
+                Some(value) if value == basic_auth_value => Ok(()),
+                _ => {
+                    let mut response = Response::new(Body::empty());
+                    *response.status_mut() = StatusCode::UNAUTHORIZED;
+                    response.headers_mut().insert(WWW_AUTHENTICATE, HeaderValue::from_static("Basic"));
+                    Err(response)
+                }
+            },
         ));
     }
 

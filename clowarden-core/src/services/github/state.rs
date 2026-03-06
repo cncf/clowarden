@@ -374,7 +374,7 @@ impl State {
                          repo_name: &RepositoryName,
                          team_name: &TeamName| {
             if let Some(teams) = collection[repo_name].teams.as_ref() {
-                return teams.get(&team_name.to_string()).cloned().unwrap_or_default();
+                return teams.get(team_name).cloned().unwrap_or_default();
             }
             Role::default()
         };
@@ -382,7 +382,7 @@ impl State {
                          repo_name: &RepositoryName,
                          user_name: &UserName| {
             if let Some(collaborators) = collection[repo_name].collaborators.as_ref() {
-                return collaborators.get(&user_name.to_string()).cloned().unwrap_or_default();
+                return collaborators.get(user_name).cloned().unwrap_or_default();
             }
             Role::default()
         };
@@ -412,14 +412,14 @@ impl State {
             }
             for team_name in teams_old.difference(&teams_new) {
                 changes.push(RepositoryChange::TeamRemoved(
-                    (*repo_name).to_string(),
-                    (*team_name).to_string(),
+                    (*repo_name).clone(),
+                    (*team_name).clone(),
                 ));
             }
             for team_name in teams_new.difference(&teams_old) {
                 changes.push(RepositoryChange::TeamAdded(
-                    (*repo_name).to_string(),
-                    (*team_name).to_string(),
+                    (*repo_name).clone(),
+                    (*team_name).clone(),
                     team_role(&repos_new, repo_name, team_name),
                 ));
             }
@@ -432,8 +432,8 @@ impl State {
                 let role_old = team_role(&repos_old, repo_name, team_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::TeamRoleUpdated(
-                        (*repo_name).to_string(),
-                        (*team_name).to_string(),
+                        (*repo_name).clone(),
+                        (*team_name).clone(),
                         role_new,
                     ));
                 }
@@ -450,14 +450,14 @@ impl State {
             }
             for user_name in collaborators_old.difference(&collaborators_new) {
                 changes.push(RepositoryChange::CollaboratorRemoved(
-                    (*repo_name).to_string(),
-                    (*user_name).to_string(),
+                    (*repo_name).clone(),
+                    (*user_name).clone(),
                 ));
             }
             for user_name in collaborators_new.difference(&collaborators_old) {
                 changes.push(RepositoryChange::CollaboratorAdded(
-                    (*repo_name).to_string(),
-                    (*user_name).to_string(),
+                    (*repo_name).clone(),
+                    (*user_name).clone(),
                     user_role(&repos_new, repo_name, user_name),
                 ));
             }
@@ -470,8 +470,8 @@ impl State {
                 let role_old = user_role(&repos_old, repo_name, user_name);
                 if role_new != role_old {
                     changes.push(RepositoryChange::CollaboratorRoleUpdated(
-                        (*repo_name).to_string(),
-                        (*user_name).to_string(),
+                        (*repo_name).clone(),
+                        (*user_name).clone(),
                         role_new,
                     ));
                 }
@@ -483,7 +483,7 @@ impl State {
             if visibility_new != visibility_old {
                 let visibility_new = visibility_new.clone().unwrap_or_default();
                 changes.push(RepositoryChange::VisibilityUpdated(
-                    (*repo_name).to_string(),
+                    (*repo_name).clone(),
                     visibility_new,
                 ));
             }

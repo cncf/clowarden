@@ -67,7 +67,7 @@ impl Directory {
         let teams_names_old: HashSet<&TeamName> = teams_old.keys().copied().collect();
         let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
         for team_name in teams_names_old.difference(&teams_names_new) {
-            changes.push(DirectoryChange::TeamRemoved((*team_name).to_string()));
+            changes.push(DirectoryChange::TeamRemoved((*team_name).clone()));
         }
         for team_name in teams_names_new.difference(&teams_names_old) {
             changes.push(DirectoryChange::TeamAdded(teams_new[*team_name].clone()));
@@ -86,26 +86,26 @@ impl Directory {
             let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
             for user_name in maintainers_old.difference(&maintainers_new) {
                 changes.push(DirectoryChange::TeamMaintainerRemoved(
-                    (*team_name).to_string(),
-                    (*user_name).to_string(),
+                    (*team_name).clone(),
+                    (*user_name).clone(),
                 ));
             }
             for user_name in members_old.difference(&members_new) {
                 changes.push(DirectoryChange::TeamMemberRemoved(
-                    (*team_name).to_string(),
-                    (*user_name).to_string(),
+                    (*team_name).clone(),
+                    (*user_name).clone(),
                 ));
             }
             for user_name in maintainers_new.difference(&maintainers_old) {
                 changes.push(DirectoryChange::TeamMaintainerAdded(
-                    (*team_name).to_string(),
-                    (*user_name).to_string(),
+                    (*team_name).clone(),
+                    (*user_name).clone(),
                 ));
             }
             for user_name in members_new.difference(&members_old) {
                 changes.push(DirectoryChange::TeamMemberAdded(
-                    (*team_name).to_string(),
-                    (*user_name).to_string(),
+                    (*team_name).clone(),
+                    (*user_name).clone(),
                 ));
             }
         }
@@ -119,10 +119,10 @@ impl Directory {
         let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
         let mut users_added: Vec<&UserFullName> = vec![];
         for full_name in users_fullnames_old.difference(&users_fullnames_new) {
-            changes.push(DirectoryChange::UserRemoved((*full_name).to_string()));
+            changes.push(DirectoryChange::UserRemoved((*full_name).clone()));
         }
         for full_name in users_fullnames_new.difference(&users_fullnames_old) {
-            changes.push(DirectoryChange::UserAdded((*full_name).to_string()));
+            changes.push(DirectoryChange::UserAdded((*full_name).clone()));
             users_added.push(full_name);
         }
 
@@ -136,7 +136,7 @@ impl Directory {
 
             let user_old = &users_old[full_name];
             if user_new != user_old {
-                changes.push(DirectoryChange::UserUpdated((*full_name).to_string()));
+                changes.push(DirectoryChange::UserUpdated((*full_name).clone()));
             }
         }
 
