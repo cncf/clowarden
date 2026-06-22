@@ -18,7 +18,7 @@ use axum::{
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use mime::APPLICATION_JSON;
-use octorust::types::JobStatus;
+use octorust::types::{ChecksCreateRequestConclusion, JobStatus};
 use sha2::Sha256;
 use tokio::sync::mpsc;
 use tower::ServiceBuilder;
@@ -35,7 +35,7 @@ use clowarden_core::cfg::Organization;
 use crate::{
     cfg::Config,
     db::{DynDB, SearchChangesInput},
-    github::{self, Ctx, DynGH, Event, EventError, PullRequestEvent, PullRequestEventAction},
+    github::{self, Ctx, DynGH, Event, EventError, PullRequestEventAction},
     jobs::{Job, ReconcileInput, ValidateInput},
 };
 
@@ -56,6 +56,9 @@ const GITHUB_SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
 
 /// Header that indicates the number of items available for pagination purposes.
 const PAGINATION_TOTAL_COUNT: &str = "pagination-total-count";
+
+/// Message used when a pull request does not update configuration files.
+const NO_CONFIG_CHANGES_MSG: &str = "No CLOWarden configuration changes detected";
 
 /// Router's state.
 #[derive(Clone, FromRef)]
@@ -154,6 +157,8 @@ pub(crate) fn setup_router(
     Ok(router)
 }
 
+// Handlers.
+
 /// Handler that takes care of health check requests.
 #[allow(clippy::unused_async)]
 async fn health_check() -> impl IntoResponse {
@@ -224,12 +229,29 @@ async fn event(
             }
 
             // Check if the PR updates the configuration files
-            match pr_updates_config(gh.clone(), &org, &event).await {
+            match pr_updates_config(
+                gh.clone(),
+                &org,
+                &event.repository.name,
+                &event.pull_request.base.ref_,
+                event.pull_request.number,
+            )
+            .await
+            {
                 Ok(true) => {
                     // It does, go ahead processing event
                 }
                 Ok(false) => {
-                    // It does not, return
+                    // It does not, report success when branch protection may require a check
+                    if matches!(
+                        event.action,
+                        PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
+                    ) && let Err(err) =
+                        create_no_config_changes_check(gh.clone(), &org, &event.pull_request.head.sha).await
+                    {
+                        error!(?err, "error creating no configuration changes check run");
+                        return Err((StatusCode::INTERNAL_SERVER_ERROR, String::new()));
+                    }
                     return Ok(());
                 }
                 Err(err) => {
@@ -301,6 +323,57 @@ async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> i
         .map_err(internal_error)
 }
 
+// Helpers.
+
+/// Create a successful check run when a pull request does not update
+/// configuration files.
+async fn create_no_config_changes_check(gh: DynGH, org: &Organization, head_sha: &str) -> Result<()> {
+    let ctx = Ctx::from(org);
+    let check_body = github::new_checks_create_request(
+        head_sha.to_string(),
+        Some(JobStatus::Completed),
+        Some(ChecksCreateRequestConclusion::Success),
+        NO_CONFIG_CHANGES_MSG,
+    );
+    gh.create_check_run(&ctx, &check_body).await
+}
+
+/// Check if the pull request in the event provided updates any of the
+/// organization configuration files.
+async fn pr_updates_config(
+    gh: DynGH,
+    org: &Organization,
+    repository_name: &str,
+    base_ref: &str,
+    pr_number: i64,
+) -> Result<bool> {
+    // Check if repository in PR matches with config
+    if org.repository != repository_name {
+        return Ok(false);
+    }
+
+    // Check if base branch in PR matches with config
+    if org.branch != base_ref {
+        return Ok(false);
+    }
+
+    // Check if any of the configuration files is on the pr
+    if org.legacy.enabled {
+        let mut legacy_cfg_files = vec![&org.legacy.sheriff_permissions_path];
+        if let Some(cncf_people_path) = &org.legacy.cncf_people_path {
+            legacy_cfg_files.push(cncf_people_path);
+        }
+        let ctx = Ctx::from(org);
+        for filename in gh.list_pr_files(&ctx, pr_number).await? {
+            if legacy_cfg_files.contains(&&filename) {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
 /// Verify that the signature provided is valid.
 fn verify_signature(
     signature: Option<&HeaderValue>,
@@ -333,36 +406,6 @@ fn verify_signature(
     }
 }
 
-/// Check if the pull request in the event provided updates any of the
-/// organization configuration files.
-async fn pr_updates_config(gh: DynGH, org: &Organization, event: &PullRequestEvent) -> Result<bool> {
-    // Check if repository in PR matches with config
-    if org.repository != event.repository.name {
-        return Ok(false);
-    }
-
-    // Check if base branch in PR matches with config
-    if org.branch != event.pull_request.base.ref_ {
-        return Ok(false);
-    }
-
-    // Check if any of the configuration files is on the pr
-    if org.legacy.enabled {
-        let mut legacy_cfg_files = vec![&org.legacy.sheriff_permissions_path];
-        if let Some(cncf_people_path) = &org.legacy.cncf_people_path {
-            legacy_cfg_files.push(cncf_people_path);
-        }
-        let ctx = Ctx::from(org);
-        for filename in gh.list_pr_files(&ctx, event.pull_request.number).await? {
-            if legacy_cfg_files.contains(&&filename) {
-                return Ok(true);
-            }
-        }
-    }
-
-    Ok(false)
-}
-
 /// Helper for mapping any error into a `500 Internal Server Error` response.
 #[allow(clippy::needless_pass_by_value)]
 fn internal_error<E>(err: E) -> StatusCode
@@ -371,4 +414,150 @@ where
 {
     error!(%err);
     StatusCode::INTERNAL_SERVER_ERROR
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use anyhow::format_err;
+    use futures::future;
+
+    use clowarden_core::cfg::Legacy;
+
+    use crate::github::MockGH;
+
+    use super::*;
+
+    const BASE_REF: &str = "main";
+    const ERROR: &str = "something went wrong";
+    const HEAD_SHA: &str = "abc123";
+    const INSTALLATION_ID: i64 = 1;
+    const ORG: &str = "cncf";
+    const PR_NUMBER: i64 = 42;
+    const REPO: &str = "clowarden-config";
+
+    #[tokio::test]
+    async fn create_no_config_changes_check_success() {
+        // Setup GitHub mock
+        let mut gh = MockGH::new();
+        gh.expect_create_check_run()
+            .withf(|ctx, body| {
+                ctx.inst_id == INSTALLATION_ID
+                    && ctx.owner == ORG
+                    && ctx.repo == REPO
+                    && body.conclusion == Some(ChecksCreateRequestConclusion::Success)
+                    && body.head_sha == HEAD_SHA
+                    && body.name == "CLOWarden"
+                    && body.output.as_ref().is_some_and(|output| {
+                        output.summary == NO_CONFIG_CHANGES_MSG && output.title == NO_CONFIG_CHANGES_MSG
+                    })
+                    && body.status == Some(JobStatus::Completed)
+            })
+            .times(1)
+            .returning(|_, _| Box::pin(future::ready(Ok(()))));
+
+        // Run the workflow
+        let result = create_no_config_changes_check(Arc::new(gh), &setup_test_org(), HEAD_SHA).await;
+
+        // Check check run was created
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn create_no_config_changes_check_failure() {
+        // Setup GitHub mock
+        let mut gh = MockGH::new();
+        gh.expect_create_check_run()
+            .times(1)
+            .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
+
+        // Run the workflow
+        let result = create_no_config_changes_check(Arc::new(gh), &setup_test_org(), HEAD_SHA).await;
+
+        // Check error is propagated
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn pr_updates_config_legacy_file_changed() {
+        // Setup GitHub mock
+        let mut gh = MockGH::new();
+        gh.expect_list_pr_files()
+            .withf(|ctx, pr_number| {
+                ctx.inst_id == INSTALLATION_ID
+                    && ctx.owner == ORG
+                    && ctx.repo == REPO
+                    && *pr_number == PR_NUMBER
+            })
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(future::ready(Ok(vec![
+                    "docs/README.md".to_string(),
+                    "config.yaml".to_string(),
+                ])))
+            });
+
+        // Run the workflow
+        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
+
+        // Check configuration update was detected
+        assert!(result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn pr_updates_config_legacy_file_not_changed() {
+        // Setup GitHub mock
+        let mut gh = MockGH::new();
+        gh.expect_list_pr_files()
+            .times(1)
+            .returning(|_, _| Box::pin(future::ready(Ok(vec!["docs/README.md".to_string()]))));
+
+        // Run the workflow
+        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
+
+        // Check configuration update was not detected
+        assert!(!result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn pr_updates_config_wrong_base_ref_skips_files() {
+        // Setup GitHub mock
+        let gh = MockGH::new();
+
+        // Run the workflow
+        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, "feature", PR_NUMBER).await;
+
+        // Check configuration update was not detected
+        assert!(!result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn pr_updates_config_wrong_repository_skips_files() {
+        // Setup GitHub mock
+        let gh = MockGH::new();
+
+        // Run the workflow
+        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), "other", BASE_REF, PR_NUMBER).await;
+
+        // Check configuration update was not detected
+        assert!(!result.unwrap());
+    }
+
+    // Helpers.
+
+    fn setup_test_org() -> Organization {
+        Organization {
+            branch: BASE_REF.to_string(),
+            installation_id: INSTALLATION_ID,
+            legacy: Legacy {
+                enabled: true,
+                sheriff_permissions_path: "config.yaml".to_string(),
+
+                cncf_people_path: Some("people.yaml".to_string()),
+            },
+            name: ORG.to_string(),
+            repository: REPO.to_string(),
+        }
+    }
 }
