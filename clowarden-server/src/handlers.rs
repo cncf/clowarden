@@ -209,22 +209,22 @@ async fn event(
     // Take action on event when needed
     match event {
         Event::PullRequest(event) => {
-            // Check event comes from a registered organization
+            // Check event comes from a registered organization target
             let Some(gh_org) = &event.organization else {
                 return Ok(());
             };
-            let Some(org) = orgs.iter().find(|o| o.name == gh_org.login).cloned() else {
+            let Some(org) = find_target_org(
+                &orgs,
+                &gh_org.login,
+                &event.repository.name,
+                &event.pull_request.base.ref_,
+            )
+            .cloned() else {
                 return Ok(());
             };
 
             // Check if we are interested on the event's action
-            if ![
-                PullRequestEventAction::Closed,
-                PullRequestEventAction::Opened,
-                PullRequestEventAction::Synchronize,
-            ]
-            .contains(&event.action)
-            {
+            if !is_supported_pr_action(&event.action) {
                 return Ok(());
             }
 
@@ -238,22 +238,23 @@ async fn event(
             )
             .await
             {
-                Ok(true) => {
+                Ok(PullRequestConfigChanges::Changed) => {
                     // It does, go ahead processing event
                 }
-                Ok(false) => {
+                Ok(PullRequestConfigChanges::Unchanged) => {
                     // It does not, report success when branch protection may require a check
-                    if matches!(
-                        event.action,
-                        PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
-                    ) && let Err(err) =
-                        create_no_config_changes_check(gh.clone(), &org, &event.pull_request.head.sha).await
-                    {
-                        error!(?err, "error creating no configuration changes check run");
-                        return Err((StatusCode::INTERNAL_SERVER_ERROR, String::new()));
+                    if should_report_no_config_changes(&event.action) {
+                        report_no_config_changes(
+                            gh.clone(),
+                            &org,
+                            event.pull_request.number,
+                            &event.pull_request.head.sha,
+                        )
+                        .await;
                     }
                     return Ok(());
                 }
+                Ok(PullRequestConfigChanges::NotTarget) => return Ok(()),
                 Err(err) => {
                     error!(?err, "error checking if pr updates config");
                     return Ok(());
@@ -338,6 +339,36 @@ async fn create_no_config_changes_check(gh: DynGH, org: &Organization, head_sha:
     gh.create_check_run(&ctx, &check_body).await
 }
 
+/// Find the organization target for a pull request event.
+fn find_target_org<'a>(
+    orgs: &'a [Organization],
+    organization_name: &str,
+    repository_name: &str,
+    base_ref: &str,
+) -> Option<&'a Organization> {
+    orgs.iter().find(|org| {
+        org.name == organization_name && org.repository == repository_name && org.branch == base_ref
+    })
+}
+
+/// Helper for mapping any error into a `500 Internal Server Error` response.
+#[allow(clippy::needless_pass_by_value)]
+fn internal_error<E>(err: E) -> StatusCode
+where
+    E: Into<Error> + Display,
+{
+    error!(%err);
+    StatusCode::INTERNAL_SERVER_ERROR
+}
+
+/// Check if the pull request action is supported.
+fn is_supported_pr_action(action: &PullRequestEventAction) -> bool {
+    matches!(
+        action,
+        PullRequestEventAction::Closed | PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
+    )
+}
+
 /// Check if the pull request in the event provided updates any of the
 /// organization configuration files.
 async fn pr_updates_config(
@@ -346,15 +377,15 @@ async fn pr_updates_config(
     repository_name: &str,
     base_ref: &str,
     pr_number: i64,
-) -> Result<bool> {
+) -> Result<PullRequestConfigChanges> {
     // Check if repository in PR matches with config
     if org.repository != repository_name {
-        return Ok(false);
+        return Ok(PullRequestConfigChanges::NotTarget);
     }
 
     // Check if base branch in PR matches with config
     if org.branch != base_ref {
-        return Ok(false);
+        return Ok(PullRequestConfigChanges::NotTarget);
     }
 
     // Check if any of the configuration files is on the pr
@@ -366,12 +397,35 @@ async fn pr_updates_config(
         let ctx = Ctx::from(org);
         for filename in gh.list_pr_files(&ctx, pr_number).await? {
             if legacy_cfg_files.contains(&&filename) {
-                return Ok(true);
+                return Ok(PullRequestConfigChanges::Changed);
             }
         }
     }
 
-    Ok(false)
+    Ok(PullRequestConfigChanges::Unchanged)
+}
+
+/// Check if a no-configuration-changes report should be created for the pull
+/// request action.
+fn should_report_no_config_changes(action: &PullRequestEventAction) -> bool {
+    matches!(
+        action,
+        PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
+    )
+}
+
+/// Report a successful no-configuration-changes check when possible.
+async fn report_no_config_changes(gh: DynGH, org: &Organization, pr_number: i64, head_sha: &str) {
+    if let Err(err) = create_no_config_changes_check(gh, org, head_sha).await {
+        error!(
+            ?err,
+            org = %org.name,
+            repo = %org.repository,
+            %head_sha,
+            pr_number,
+            "error creating no configuration changes check run"
+        );
+    }
 }
 
 /// Verify that the signature provided is valid.
@@ -406,14 +460,21 @@ fn verify_signature(
     }
 }
 
-/// Helper for mapping any error into a `500 Internal Server Error` response.
-#[allow(clippy::needless_pass_by_value)]
-fn internal_error<E>(err: E) -> StatusCode
-where
-    E: Into<Error> + Display,
-{
-    error!(%err);
-    StatusCode::INTERNAL_SERVER_ERROR
+// Types.
+
+/// Configuration change status for a pull request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PullRequestConfigChanges {
+    /// The pull request updates CLOWarden configuration files.
+    Changed,
+
+    /// The pull request targets a repository or branch not managed by this
+    /// CLOWarden instance.
+    NotTarget,
+
+    /// The pull request targets this CLOWarden instance but does not update
+    /// configuration files.
+    Unchanged,
 }
 
 #[cfg(test)]
@@ -479,6 +540,43 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn find_target_org_matches_organization_repository_and_base_ref() {
+        // Setup organizations
+        let org = setup_test_org();
+        let orgs = vec![org.clone()];
+
+        // Run the target lookup
+        let result = find_target_org(&orgs, ORG, REPO, BASE_REF);
+
+        // Check matching organization target was found
+        assert_eq!(result, Some(&org));
+    }
+
+    #[test]
+    fn find_target_org_rejects_wrong_base_ref() {
+        // Setup organizations
+        let orgs = vec![setup_test_org()];
+
+        // Run the target lookup
+        let result = find_target_org(&orgs, ORG, REPO, "feature");
+
+        // Check no target was found
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_target_org_rejects_wrong_repository() {
+        // Setup organizations
+        let orgs = vec![setup_test_org()];
+
+        // Run the target lookup
+        let result = find_target_org(&orgs, ORG, "other", BASE_REF);
+
+        // Check no target was found
+        assert_eq!(result, None);
+    }
+
     #[tokio::test]
     async fn pr_updates_config_legacy_file_changed() {
         // Setup GitHub mock
@@ -502,7 +600,7 @@ mod tests {
         let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
 
         // Check configuration update was detected
-        assert!(result.unwrap());
+        assert_eq!(result.unwrap(), PullRequestConfigChanges::Changed);
     }
 
     #[tokio::test]
@@ -517,7 +615,7 @@ mod tests {
         let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
 
         // Check configuration update was not detected
-        assert!(!result.unwrap());
+        assert_eq!(result.unwrap(), PullRequestConfigChanges::Unchanged);
     }
 
     #[tokio::test]
@@ -528,8 +626,8 @@ mod tests {
         // Run the workflow
         let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, "feature", PR_NUMBER).await;
 
-        // Check configuration update was not detected
-        assert!(!result.unwrap());
+        // Check pull request was treated as a non-target
+        assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
     }
 
     #[tokio::test]
@@ -540,8 +638,20 @@ mod tests {
         // Run the workflow
         let result = pr_updates_config(Arc::new(gh), &setup_test_org(), "other", BASE_REF, PR_NUMBER).await;
 
-        // Check configuration update was not detected
-        assert!(!result.unwrap());
+        // Check pull request was treated as a non-target
+        assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
+    }
+
+    #[tokio::test]
+    async fn report_no_config_changes_ignores_check_failure() {
+        // Setup GitHub mock
+        let mut gh = MockGH::new();
+        gh.expect_create_check_run()
+            .times(1)
+            .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
+
+        // Run the workflow
+        report_no_config_changes(Arc::new(gh), &setup_test_org(), PR_NUMBER, HEAD_SHA).await;
     }
 
     // Helpers.
