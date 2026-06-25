@@ -40,6 +40,18 @@ static GHSA_TEMP_FORK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new("^(.+)-ghsa(-[23456789cfghjmpqrvwx]{4}){3}$").expect("expr in GHSA_TEMP_FORK to be valid")
 });
 
+/// Regular expression to match enterprise teams (e.g.
+/// `@/ent:project-maintainers`). These teams are managed at the enterprise
+/// level, so CLOWarden ignores them instead of trying to manage them.
+static ENTERPRISE_TEAM: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("^(@/)?ent:").expect("expr in ENTERPRISE_TEAM to be valid"));
+
+/// Check whether the team identified by the slug provided is an enterprise
+/// team managed outside of CLOWarden.
+fn is_enterprise_team(slug: &str) -> bool {
+    ENTERPRISE_TEAM.is_match(slug)
+}
+
 /// Type alias to represent a repository name.
 pub type RepositoryName = String;
 
@@ -144,6 +156,8 @@ impl State {
 
         // Teams
         for team in stream::iter(svc.list_teams(ctx).await?)
+            // Ignore enterprise teams as they are managed at the enterprise level
+            .filter(|team| future::ready(!is_enterprise_team(&team.slug)))
             .map(|team| async {
                 // Get maintainers and members (including pending invitations)
                 let mut maintainers: Vec<UserName> =
@@ -224,6 +238,8 @@ impl State {
                     .await
                     .context(format!("error listing repository {} teams", &repo.name))?
                     .into_iter()
+                    // Ignore enterprise teams as they are managed at the enterprise level
+                    .filter(|t| !is_enterprise_team(&t.slug))
                     .map(|t| (t.slug, t.permissions.into()))
                     .collect();
                 let teams = if teams.is_empty() { None } else { Some(teams) };
@@ -814,6 +830,14 @@ impl Change for RepositoryChange {
 mod tests {
     use super::*;
     use crate::directory::User;
+
+    #[test]
+    fn is_enterprise_team_matches() {
+        assert!(is_enterprise_team("ent:project-maintainers"));
+        assert!(is_enterprise_team("@/ent:project-maintainers"));
+        assert!(!is_enterprise_team("project-maintainers"));
+        assert!(!is_enterprise_team("team1"));
+    }
 
     #[test]
     fn diff_user_added_discarded() {
