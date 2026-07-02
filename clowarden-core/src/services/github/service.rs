@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use cached::proc_macro::cached;
+use cached::macros::cached;
 #[cfg(test)]
 use mockall::automock;
 use octorust::{
@@ -402,9 +402,8 @@ impl Svc for SvcApi {
     /// [Svc::list_org_admins]
     async fn list_org_admins(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
-            time = 60,
+            ttl = 60,
             sync_writes = "default",
-            result = true,
             key = "String",
             convert = r#"{ format!("{}", org) }"#
         )]
@@ -422,9 +421,8 @@ impl Svc for SvcApi {
     /// [Svc::list_org_members]
     async fn list_org_members(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
-            time = 60,
+            ttl = 60,
             sync_writes = "default",
-            result = true,
             key = "String",
             convert = r#"{ format!("{}", org) }"#
         )]
@@ -473,9 +471,8 @@ impl Svc for SvcApi {
         repo_name: &RepositoryName,
     ) -> Result<Vec<RepositoryInvitation>> {
         #[cached(
-            time = 60,
+            ttl = 60,
             sync_writes = "default",
-            result = true,
             key = "String",
             convert = r#"{ format!("{}", repo_name) }"#
         )]
