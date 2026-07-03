@@ -1,13 +1,13 @@
 # Build clowarden
-FROM rust:1-alpine3.23 AS builder
+FROM rust:1.96.1-alpine3.24 AS builder
 RUN apk --no-cache add musl-dev perl make
 WORKDIR /clowarden
 COPY Cargo.* ./
-COPY clowarden-cli/Cargo.* clowarden-cli
+COPY clowarden-cli clowarden-cli
 COPY clowarden-core clowarden-core
 COPY clowarden-server clowarden-server
 WORKDIR /clowarden/clowarden-server
-RUN cargo build --release
+RUN cargo build --release --locked
 
 # Build frontend
 FROM node:24-alpine3.23 AS frontend-builder
@@ -20,7 +20,7 @@ RUN yarn install --network-concurrency 1
 RUN yarn build
 
 # Final stage
-FROM alpine:3.23.3
+FROM alpine:3.24.1
 RUN apk --no-cache add ca-certificates && addgroup -S clowarden && adduser -S clowarden -G clowarden
 USER clowarden
 WORKDIR /home/clowarden

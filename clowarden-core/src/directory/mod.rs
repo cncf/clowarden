@@ -207,7 +207,7 @@ impl From<legacy::Cfg> for Directory {
                         .map(|captures| captures["handle"].to_string());
                     let image_url = match u.image {
                         Some(v) if v.starts_with("https://") => Some(v),
-                        Some(v) => Some(format!("https://github.com/cncf/people/raw/main/images/{v}",)),
+                        Some(v) => Some(format!("https://github.com/cncf/people/raw/main/images/{v}")),
                         None => None,
                     };
                     User {
@@ -412,7 +412,7 @@ impl Change for DirectoryChange {
                 write!(s, "- team **{team_name}** has been *removed*")?;
             }
             DirectoryChange::TeamMaintainerAdded(team_name, user_name) => {
-                write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**",)?;
+                write!(s, "- **{user_name}** is now a maintainer of team **{team_name}**")?;
             }
             DirectoryChange::TeamMaintainerRemoved(team_name, user_name) => {
                 write!(

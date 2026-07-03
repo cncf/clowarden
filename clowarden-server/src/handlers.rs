@@ -16,7 +16,7 @@ use axum::{
     routing::{get, get_service, post},
 };
 use base64::Engine;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use mime::APPLICATION_JSON;
 use octorust::types::{ChecksCreateRequestConclusion, JobStatus};
 use sha2::Sha256;
@@ -116,6 +116,7 @@ pub(crate) fn setup_router(
                 .encode(format!("{}:{}", basic_auth.username, basic_auth.password))
         ))?;
         audit_router = audit_router.layer(ValidateRequestHeaderLayer::custom(
+            #[allow(clippy::result_large_err)]
             move |request: &mut Request<Body>| match request.headers().get(AUTHORIZATION) {
                 Some(value) if value == basic_auth_value => Ok(()),
                 _ => {
