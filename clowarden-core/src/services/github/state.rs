@@ -198,7 +198,7 @@ impl State {
                 let mut collaborators: BTreeMap<UserName, Role> = svc
                     .list_repository_collaborators(ctx, &repo.name)
                     .await
-                    .context(format!("error listing repository {} collaborators", &repo.name))?
+                    .context(format!("error listing repository {} collaborators", repo.name))?
                     .into_iter()
                     .filter(|c| !org_admins.contains(&c.login))
                     .map(|c| (c.login, c.permissions.into()))
@@ -206,7 +206,7 @@ impl State {
                 for invitation in svc
                     .list_repository_invitations(ctx, &repo.name)
                     .await
-                    .context(format!("error listing repository {} invitations", &repo.name))?
+                    .context(format!("error listing repository {} invitations", repo.name))?
                 {
                     if let Some(invitee) = invitation.invitee {
                         collaborators.insert(invitee.login, invitation.permissions.into());
@@ -222,7 +222,7 @@ impl State {
                 let teams: BTreeMap<TeamName, Role> = svc
                     .list_repository_teams(ctx, &repo.name)
                     .await
-                    .context(format!("error listing repository {} teams", &repo.name))?
+                    .context(format!("error listing repository {} teams", repo.name))?
                     .into_iter()
                     .map(|t| (t.slug, t.permissions.into()))
                     .collect();

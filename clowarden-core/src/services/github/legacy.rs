@@ -55,10 +55,7 @@ pub(crate) mod sheriff {
                 // No duplicate config per repo
                 if !repo.name.is_empty() {
                     if repos_seen.contains(&&repo.name) {
-                        merr.push(format_err!(
-                            "repo[{id}]: duplicate config for repo {}",
-                            &repo.name
-                        ));
+                        merr.push(format_err!("repo[{id}]: duplicate config for repo {}", repo.name));
                         continue;
                     }
                     repos_seen.push(&repo.name);
