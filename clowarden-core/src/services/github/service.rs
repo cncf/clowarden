@@ -402,7 +402,7 @@ impl Svc for SvcApi {
     /// [Svc::list_org_admins]
     async fn list_org_admins(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
-            ttl = 60,
+            ttl_secs = 60,
             sync_writes = "default",
             key = "String",
             convert = r#"{ format!("{}", org) }"#
@@ -421,7 +421,7 @@ impl Svc for SvcApi {
     /// [Svc::list_org_members]
     async fn list_org_members(&self, ctx: &Ctx) -> Result<Vec<SimpleUser>> {
         #[cached(
-            ttl = 60,
+            ttl_secs = 60,
             sync_writes = "default",
             key = "String",
             convert = r#"{ format!("{}", org) }"#
@@ -471,7 +471,7 @@ impl Svc for SvcApi {
         repo_name: &RepositoryName,
     ) -> Result<Vec<RepositoryInvitation>> {
         #[cached(
-            ttl = 60,
+            ttl_secs = 60,
             sync_writes = "default",
             key = "String",
             convert = r#"{ format!("{}", repo_name) }"#

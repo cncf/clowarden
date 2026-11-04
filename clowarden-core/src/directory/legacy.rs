@@ -169,10 +169,7 @@ pub mod sheriff {
                 // No duplicate config per team
                 if !team.name.is_empty() {
                     if teams_seen.contains(&&team.name) {
-                        merr.push(format_err!(
-                            "team[{id}]: duplicate config for team {}",
-                            &team.name
-                        ));
+                        merr.push(format_err!("team[{id}]: duplicate config for team {}", team.name));
                         continue;
                     }
                     teams_seen.push(&team.name);
