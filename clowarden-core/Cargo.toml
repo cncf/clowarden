@@ -30,3 +30,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
+openssl = { workspace = true }
+
+[features]
+# Exposes the GitHub API stand-in to the tests of other crates in the workspace.
+testing = []

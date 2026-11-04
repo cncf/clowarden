@@ -45,4 +45,6 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+clowarden-core = { path = "../clowarden-core", features = ["testing"] }
 mockall = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

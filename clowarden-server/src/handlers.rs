@@ -3,7 +3,7 @@
 
 use std::{fmt::Display, path::Path};
 
-use anyhow::{Error, Result, format_err};
+use anyhow::{Error, Result, bail, format_err};
 use axum::{
     Router,
     body::{Body, Bytes},
@@ -39,11 +39,17 @@ use crate::{
     jobs::{Job, ReconcileInput, ValidateInput},
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Audit index HTML document cache duration.
 const AUDIT_INDEX_CACHE_MAX_AGE: usize = 300;
 
 /// Default cache duration for some API endpoints.
 const DEFAULT_API_MAX_AGE: usize = 300;
+
+/// Maximum number of changes that can be requested in a single search.
+const MAX_SEARCH_LIMIT: usize = 100;
 
 /// Static files cache duration.
 const STATIC_CACHE_MAX_AGE: usize = 365 * 24 * 60 * 60;
@@ -56,6 +62,9 @@ const GITHUB_SIGNATURE_HEADER: &str = "X-Hub-Signature-256";
 
 /// Header that indicates the number of items available for pagination purposes.
 const PAGINATION_TOTAL_COUNT: &str = "pagination-total-count";
+
+/// Message returned when a search query cannot be parsed.
+const INVALID_SEARCH_QUERY_MSG: &str = "invalid search query";
 
 /// Message used when a pull request does not update configuration files.
 const NO_CONFIG_CHANGES_MSG: &str = "No CLOWarden configuration changes detected";
@@ -84,6 +93,13 @@ pub(crate) fn setup_router(
     let audit_path = Path::new(&static_path).join("audit");
     let audit_index_path = audit_path.join("index.html");
 
+    // Setup static files cache header, used only on successful and not modified responses
+    let static_cache_control = HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?;
+    let static_cache_header = move |response: &Response<_>| {
+        let status = response.status();
+        (status.is_success() || status == StatusCode::NOT_MODIFIED).then(|| static_cache_control.clone())
+    };
+
     // Setup audit index handler
     let audit_index = SetResponseHeader::overriding(
         ServeFile::new(audit_index_path),
@@ -100,7 +116,7 @@ pub(crate) fn setup_router(
             get_service(SetResponseHeader::overriding(
                 ServeDir::new(audit_path),
                 CACHE_CONTROL,
-                HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
+                static_cache_header.clone(),
             )),
         )
         .route("/", get_service(audit_index.clone()))
@@ -141,7 +157,7 @@ pub(crate) fn setup_router(
             get_service(SetResponseHeader::overriding(
                 ServeDir::new(static_path),
                 CACHE_CONTROL,
-                HeaderValue::try_from(format!("max-age={STATIC_CACHE_MAX_AGE}"))?,
+                static_cache_header,
             )),
         )
         .fallback_service(get_service(ServeFile::new(&root_index_path)))
@@ -311,9 +327,16 @@ async fn list_organizations(State(orgs): State<Vec<Organization>>) -> impl IntoR
 
 /// Handler that allows searching for changes.
 async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> impl IntoResponse {
-    // Search changes in database
+    // Parse and validate search input
     let query = query.unwrap_or_default();
-    let input: SearchChangesInput = serde_qs::from_str(&query).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let Ok(input) = serde_qs::from_str::<SearchChangesInput>(&query) else {
+        return Ok((StatusCode::BAD_REQUEST, INVALID_SEARCH_QUERY_MSG).into_response());
+    };
+    if let Err(err) = validate_search_pagination(&input) {
+        return Ok((StatusCode::BAD_REQUEST, err.to_string()).into_response());
+    }
+
+    // Search changes in database
     let (count, changes) = db.search_changes(&input).await.map_err(internal_error)?;
 
     // Return search results as json
@@ -429,6 +452,20 @@ async fn report_no_config_changes(gh: DynGH, org: &Organization, pr_number: i64,
     }
 }
 
+/// Validate the pagination values in the search input provided. The database
+/// reads them as 32-bit integers, and the limit is capped to bound the size of
+/// the response.
+fn validate_search_pagination(input: &SearchChangesInput) -> Result<()> {
+    if input.limit.is_some_and(|limit| limit > MAX_SEARCH_LIMIT) {
+        bail!("limit must not be greater than {MAX_SEARCH_LIMIT}");
+    }
+    if input.offset.is_some_and(|offset| i32::try_from(offset).is_err()) {
+        bail!("offset must not be greater than {}", i32::MAX);
+    }
+
+    Ok(())
+}
+
 /// Verify that the signature provided is valid.
 fn verify_signature(
     signature: Option<&HeaderValue>,
@@ -476,199 +513,4 @@ enum PullRequestConfigChanges {
     /// The pull request targets this CLOWarden instance but does not update
     /// configuration files.
     Unchanged,
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use anyhow::format_err;
-    use futures::future;
-
-    use clowarden_core::cfg::Legacy;
-
-    use crate::github::MockGH;
-
-    use super::*;
-
-    const BASE_REF: &str = "main";
-    const ERROR: &str = "something went wrong";
-    const HEAD_SHA: &str = "abc123";
-    const INSTALLATION_ID: i64 = 1;
-    const ORG: &str = "cncf";
-    const PR_NUMBER: i64 = 42;
-    const REPO: &str = "clowarden-config";
-
-    #[tokio::test]
-    async fn create_no_config_changes_check_success() {
-        // Setup GitHub mock
-        let mut gh = MockGH::new();
-        gh.expect_create_check_run()
-            .withf(|ctx, body| {
-                ctx.inst_id == INSTALLATION_ID
-                    && ctx.owner == ORG
-                    && ctx.repo == REPO
-                    && body.conclusion == Some(ChecksCreateRequestConclusion::Success)
-                    && body.head_sha == HEAD_SHA
-                    && body.name == "CLOWarden"
-                    && body.output.as_ref().is_some_and(|output| {
-                        output.summary == NO_CONFIG_CHANGES_MSG && output.title == NO_CONFIG_CHANGES_MSG
-                    })
-                    && body.status == Some(JobStatus::Completed)
-            })
-            .times(1)
-            .returning(|_, _| Box::pin(future::ready(Ok(()))));
-
-        // Run the workflow
-        let result = create_no_config_changes_check(Arc::new(gh), &setup_test_org(), HEAD_SHA).await;
-
-        // Check check run was created
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn create_no_config_changes_check_failure() {
-        // Setup GitHub mock
-        let mut gh = MockGH::new();
-        gh.expect_create_check_run()
-            .times(1)
-            .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
-
-        // Run the workflow
-        let result = create_no_config_changes_check(Arc::new(gh), &setup_test_org(), HEAD_SHA).await;
-
-        // Check error is propagated
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn find_target_org_matches_organization_repository_and_base_ref() {
-        // Setup organizations
-        let org = setup_test_org();
-        let orgs = vec![org.clone()];
-
-        // Run the target lookup
-        let result = find_target_org(&orgs, ORG, REPO, BASE_REF);
-
-        // Check matching organization target was found
-        assert_eq!(result, Some(&org));
-    }
-
-    #[test]
-    fn find_target_org_rejects_wrong_base_ref() {
-        // Setup organizations
-        let orgs = vec![setup_test_org()];
-
-        // Run the target lookup
-        let result = find_target_org(&orgs, ORG, REPO, "feature");
-
-        // Check no target was found
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn find_target_org_rejects_wrong_repository() {
-        // Setup organizations
-        let orgs = vec![setup_test_org()];
-
-        // Run the target lookup
-        let result = find_target_org(&orgs, ORG, "other", BASE_REF);
-
-        // Check no target was found
-        assert_eq!(result, None);
-    }
-
-    #[tokio::test]
-    async fn pr_updates_config_legacy_file_changed() {
-        // Setup GitHub mock
-        let mut gh = MockGH::new();
-        gh.expect_list_pr_files()
-            .withf(|ctx, pr_number| {
-                ctx.inst_id == INSTALLATION_ID
-                    && ctx.owner == ORG
-                    && ctx.repo == REPO
-                    && *pr_number == PR_NUMBER
-            })
-            .times(1)
-            .returning(|_, _| {
-                Box::pin(future::ready(Ok(vec![
-                    "docs/README.md".to_string(),
-                    "config.yaml".to_string(),
-                ])))
-            });
-
-        // Run the workflow
-        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
-
-        // Check configuration update was detected
-        assert_eq!(result.unwrap(), PullRequestConfigChanges::Changed);
-    }
-
-    #[tokio::test]
-    async fn pr_updates_config_legacy_file_not_changed() {
-        // Setup GitHub mock
-        let mut gh = MockGH::new();
-        gh.expect_list_pr_files()
-            .times(1)
-            .returning(|_, _| Box::pin(future::ready(Ok(vec!["docs/README.md".to_string()]))));
-
-        // Run the workflow
-        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, BASE_REF, PR_NUMBER).await;
-
-        // Check configuration update was not detected
-        assert_eq!(result.unwrap(), PullRequestConfigChanges::Unchanged);
-    }
-
-    #[tokio::test]
-    async fn pr_updates_config_wrong_base_ref_skips_files() {
-        // Setup GitHub mock
-        let gh = MockGH::new();
-
-        // Run the workflow
-        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), REPO, "feature", PR_NUMBER).await;
-
-        // Check pull request was treated as a non-target
-        assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
-    }
-
-    #[tokio::test]
-    async fn pr_updates_config_wrong_repository_skips_files() {
-        // Setup GitHub mock
-        let gh = MockGH::new();
-
-        // Run the workflow
-        let result = pr_updates_config(Arc::new(gh), &setup_test_org(), "other", BASE_REF, PR_NUMBER).await;
-
-        // Check pull request was treated as a non-target
-        assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
-    }
-
-    #[tokio::test]
-    async fn report_no_config_changes_ignores_check_failure() {
-        // Setup GitHub mock
-        let mut gh = MockGH::new();
-        gh.expect_create_check_run()
-            .times(1)
-            .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
-
-        // Run the workflow
-        report_no_config_changes(Arc::new(gh), &setup_test_org(), PR_NUMBER, HEAD_SHA).await;
-    }
-
-    // Helpers.
-
-    fn setup_test_org() -> Organization {
-        Organization {
-            branch: BASE_REF.to_string(),
-            installation_id: INSTALLATION_ID,
-            legacy: Legacy {
-                enabled: true,
-                sheriff_permissions_path: "config.yaml".to_string(),
-
-                cncf_people_path: Some("people.yaml".to_string()),
-            },
-            name: ORG.to_string(),
-            repository: REPO.to_string(),
-        }
-    }
 }

@@ -74,7 +74,7 @@ export enum ErrorKind {
 export interface BasicQuery {
   ts_query_web?: string;
   time_range?: string;
-  organization?: string;
+  organization?: string | null;
   filters?: {
     [key: string]: string[];
   };

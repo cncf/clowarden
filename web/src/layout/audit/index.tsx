@@ -50,7 +50,6 @@ const Audit = () => {
   const [filters, setFilters] = useState<FiltersProp>({});
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [total, setTotal] = useState<number>(0);
-  const [selectedOrg, setSelectedOrg] = useState<string | undefined | null>();
   const [organizations, setOrganizations] = useState<string[] | undefined>();
   const [changes, setChanges] = useState<Change[] | null | undefined>();
   const [apiError, setApiError] = useState<ErrorContent | null>(null);
@@ -58,13 +57,16 @@ const Audit = () => {
   const limit = PAGINATION_LIMIT;
   const filtersApplied = !isEmpty(filters);
   const point = useBreakpointDetect();
+  const selectedOrg = getSelectedOrg(organizations, searchParams);
+  // Without a loaded list there is no selection, but the URL must not lose its organization
+  const orgForURL = selectedOrg ?? buildSearchParams(searchParams).organization;
 
   const getCurrentFilters = (): SearchFiltersURL => {
     return {
       pageNumber: pageNumber,
       ts_query_web: text,
       time_range: timeRange,
-      organization: selectedOrg!,
+      organization: orgForURL,
       filters: filters,
     };
   };
@@ -74,7 +76,7 @@ const Audit = () => {
       pathname: '/audit/',
       search: prepareQueryString({
         pageNumber: 1,
-        organization: selectedOrg!,
+        organization: orgForURL,
         ts_query_web: text,
         filters: {},
       }),
@@ -104,7 +106,6 @@ const Audit = () => {
       },
       { replace: true }
     );
-    setSelectedOrg(org);
   };
 
   const updateCurrentPage = (searchChanges: object) => {
@@ -164,6 +165,7 @@ const Audit = () => {
     setFilters(formattedParams.filters || {});
     setText(formattedParams.ts_query_web);
     setPageNumber(formattedParams.pageNumber);
+    let isStale = false;
 
     async function searchProjects() {
       setIsLoading(true);
@@ -171,16 +173,19 @@ const Audit = () => {
         const newSearchResults = await API.searchChangesInput({
           ts_query_web: formattedParams.ts_query_web,
           time_range: formattedParams.time_range,
-          organization: selectedOrg!,
+          organization: selectedOrg,
           sort_by: sort.by,
           sort_direction: sort.direction,
           filters: formattedParams.filters || {},
           limit: limit,
           offset: calculateOffset(formattedParams.pageNumber),
         });
+        if (isStale) return;
         setTotal(parseInt(newSearchResults['Pagination-Total-Count']));
         setChanges(newSearchResults.items);
+        setApiError(null);
       } catch {
+        if (isStale) return;
         setApiError({
           text: 'Something went wrong fetching the changes in this CLOWarden instance.',
           withLegend: true,
@@ -188,13 +193,19 @@ const Audit = () => {
         setChanges([]);
         setTotal(0);
       } finally {
-        setIsLoading(false);
-        scrollToTop();
+        if (!isStale) {
+          setIsLoading(false);
+          scrollToTop();
+        }
       }
     }
     if (selectedOrg) {
       searchProjects();
     }
+
+    return () => {
+      isStale = true;
+    };
   }, [searchParams, selectedOrg, sort.by, sort.direction]);
 
   useEffect(() => {
@@ -211,11 +222,9 @@ const Audit = () => {
       try {
         const orgs = await API.getOrganizations();
         if (orgs.length > 0) {
-          setSelectedOrg(searchParams.get('organization') || orgs[0]);
           setOrganizations(orgs);
         } else {
           setApiError({ text: 'There are no organizations registered in this CLOWarden instance.', withLegend: false });
-          setSelectedOrg(null);
           setOrganizations([]);
         }
       } catch {
@@ -223,7 +232,6 @@ const Audit = () => {
           text: 'Something went wrong fetching the organizations registered in this CLOWarden instance.',
           withLegend: true,
         });
-        setSelectedOrg(null);
         setOrganizations([]);
       } finally {
         setIsLoading(false);
@@ -368,57 +376,58 @@ const Audit = () => {
                 {changes && (
                   <>
                     {isEmpty(changes) ? (
-                      <>
-                        {!isNull(apiError) ? (
-                          <NoData>
-                            <div className="h4">
-                              We're sorry!
-                              <p className="h6 mb-0 mt-3 lh-base">
-                                <span> We can't seem to find any changes that match your search </span>
-                                {!isEmpty(filters) ? <span className="ps-1">with the selected filters</span> : <>.</>}
-                              </p>
-                              <p className="h6 mb-0 mt-5 lh-base">
-                                You can{' '}
-                                {!isEmpty(filters) ? (
-                                  <button
-                                    className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
-                                    onClick={onResetFilters}
-                                    aria-label="Reset filters"
-                                  >
-                                    <u>reset the filters</u>
-                                  </button>
-                                ) : (
-                                  <button
-                                    className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
-                                    onClick={() => {
-                                      navigate({
-                                        pathname: '/audit/',
-                                        search: prepareQueryString({
-                                          pageNumber: 1,
-                                          filters: {},
-                                        }),
-                                      });
-                                    }}
-                                    aria-label="Browse all packages"
-                                  >
-                                    <u>browse all changes</u>
-                                  </button>
-                                )}
-                                <> or try a new search.</>
-                              </p>
-                            </div>
-                          </NoData>
-                        ) : (
-                          <NoData>
-                            <div className="h4">
-                              No changes recorded yet for this selection.
-                              <p className="h6 mb-0 mt-3 lh-base">
-                                Adjust filters or pick another organization to explore activity.
-                              </p>
-                            </div>
-                          </NoData>
-                        )}
-                      </>
+                      isNull(apiError) &&
+                      (text || !isEmpty(filters) ? (
+                        <NoData>
+                          <div className="h4">
+                            We're sorry!
+                            <p className="h6 mb-0 mt-3 lh-base">
+                              <span> We can't seem to find any changes that match your search </span>
+                              {!isEmpty(filters) ? <span className="ps-1">with the selected filters</span> : <>.</>}
+                            </p>
+                            <p className="h6 mb-0 mt-5 lh-base">
+                              You can{' '}
+                              {!isEmpty(filters) ? (
+                                <button
+                                  className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
+                                  onClick={onResetFilters}
+                                  aria-label="Reset filters"
+                                >
+                                  <u>reset the filters</u>
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn btn-link text-dark fw-bold py-0 pb-1 px-0"
+                                  onClick={() => {
+                                    navigate({
+                                      pathname: '/audit/',
+                                      search: prepareQueryString({
+                                        pageNumber: 1,
+                                        organization: orgForURL,
+                                        time_range: timeRange,
+                                        filters: {},
+                                      }),
+                                    });
+                                  }}
+                                  aria-label="Browse all changes"
+                                >
+                                  <u>browse all changes</u>
+                                </button>
+                              )}
+                              <> or try a new search.</>
+                            </p>
+                          </div>
+                        </NoData>
+                      ) : (
+                        <NoData>
+                          <div className="h4">
+                            No changes recorded yet for this selection.
+                            <p className="h6 mb-0 mt-3 lh-base">
+                              Adjust filters or pick another organization to explore activity.
+                            </p>
+                          </div>
+                        </NoData>
+                      ))
                     ) : (
                       <div className={`ms-3 ${styles.list}`}>
                         <table className={`table table-bordered table-md mb-0 ${styles.table}`}>
@@ -806,3 +815,20 @@ const Audit = () => {
 };
 
 export default Audit;
+
+/**
+ * Returns the organization selected in the URL, or the first one available.
+ * The URL is the source of truth so that Back, Forward and reloads stay in sync.
+ *
+ * @param organizations Organizations available, undefined until they are loaded.
+ * @param searchParams Current URL search params.
+ * @returns The organization name, undefined while loading or null if none are available.
+ */
+const getSelectedOrg = (
+  organizations: string[] | undefined,
+  searchParams: URLSearchParams
+): string | undefined | null => {
+  if (isUndefined(organizations)) return undefined;
+  if (isEmpty(organizations)) return null;
+  return buildSearchParams(searchParams).organization || organizations[0];
+};

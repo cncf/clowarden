@@ -38,6 +38,9 @@ const JOB_TIMEOUT: u64 = 60 * 60; // 60 minutes
 /// How often periodic reconcile jobs should be scheduled (in seconds).
 const RECONCILE_FREQUENCY: u64 = 60 * 60; // Every hour
 
+/// Delay between the periodic reconcile jobs of each organization (in seconds).
+const RECONCILE_STAGGER: u64 = 30;
+
 /// Represents a job to be executed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -270,7 +273,7 @@ impl OrgWorker {
 
         // Log changes applied and errors
         for (service_name, error) in &errors {
-            debug!(?error, service = service_name, "reconciliation failed");
+            error!(?error, service = service_name, "reconciliation failed");
         }
         for (service_name, changes_applied) in &changes_applied {
             for entry in changes_applied {
@@ -315,6 +318,7 @@ impl OrgWorker {
                     ChangesSummary {
                         changes: vec![],
                         base_ref_config_status: BaseRefConfigStatus::Unknown,
+                        warnings: vec![],
                     }
                 }
             };
@@ -332,37 +336,53 @@ impl OrgWorker {
             }
         }
 
-        // Post validation completed comment and create check run
+        // Post validation completed comment
         let errors_found = merr.contains_errors();
         let err = Error::from(merr);
         let ctx = Ctx::from(&input.org);
-        let (comment_body, check_body) = if errors_found {
-            let comment_body = tmpl::ValidationFailed::new(&err).render()?;
-            let check_body = github::new_checks_create_request(
-                input.pr_head_sha,
-                Some(JobStatus::Completed),
-                Some(ChecksCreateRequestConclusion::Failure),
-                "The configuration changes proposed are not valid",
-            );
-            (comment_body, check_body)
+        let comment_body = if errors_found {
+            tmpl::ValidationFailed::new(&err).render()?
         } else {
-            let comment_body =
-                tmpl::ValidationSucceeded::new(&directory_changes, &services_changes).render()?;
-            let check_body = github::new_checks_create_request(
-                input.pr_head_sha,
-                Some(JobStatus::Completed),
-                Some(ChecksCreateRequestConclusion::Success),
-                "The configuration changes proposed are valid",
-            );
-            (comment_body, check_body)
+            tmpl::ValidationSucceeded::new(&directory_changes, &services_changes).render()?
         };
-        self.gh.post_comment(&ctx, input.pr_number, &comment_body).await?;
-        self.gh.create_check_run(&ctx, &check_body).await?;
+        let comment_result = self.gh.post_comment(&ctx, input.pr_number, &comment_body).await;
 
+        // Create check run, which must be completed even if the comment can't
+        // be posted. Its conclusion only depends on the validation outcome
+        let (conclusion, verdict) = if errors_found {
+            (
+                ChecksCreateRequestConclusion::Failure,
+                "The configuration changes proposed are not valid",
+            )
+        } else {
+            (
+                ChecksCreateRequestConclusion::Success,
+                "The configuration changes proposed are valid",
+            )
+        };
+        let check_msg = if let Err(err) = comment_result {
+            error!(?err, "error posting validation comment");
+            format!("{verdict} (the validation comment could not be posted)")
+        } else {
+            verdict.to_string()
+        };
+        let check_body = github::new_checks_create_request(
+            input.pr_head_sha,
+            Some(JobStatus::Completed),
+            Some(conclusion),
+            &check_msg,
+        );
+        let check_result = self.gh.create_check_run(&ctx, &check_body).await;
+
+        // Validation errors take precedence, as the comment may not have been
+        // posted and returning them is the only way of not losing them
         if errors_found {
+            if let Err(err) = check_result {
+                error!(?err, "error creating validation check run");
+            }
             return Err(err);
         }
-        Ok(())
+        check_result
     }
 }
 
@@ -396,7 +416,15 @@ pub(crate) fn scheduler(
                         }));
 
                         // Introduce a delay between scheduled jobs
-                        sleep(Duration::from_secs(30)).await;
+                        tokio::select! {
+                            biased;
+
+                            // Exit if the scheduler has been asked to stop
+                            () = cancel_token.cancelled() => return,
+
+                            // Continue with the next organization after the delay
+                            () = sleep(Duration::from_secs(RECONCILE_STAGGER)) => {},
+                        }
                     }
                 },
             }
@@ -405,3 +433,6 @@ pub(crate) fn scheduler(
 
     future::join_all(vec![scheduler])
 }
+
+#[cfg(test)]
+mod tests;

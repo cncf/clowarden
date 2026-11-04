@@ -156,6 +156,11 @@ async fn generate(args: GenerateArgs, github_token: String) -> Result<()> {
     let ctx = setup_context(&args.org);
     let actual_state = github::State::new_from_service(svc.clone(), &ctx).await?;
 
+    // Warn about the teams that will need a maintainer to pass validation
+    for team_name in teams_without_maintainers(&actual_state.directory.teams) {
+        println!("Warning: team {team_name} has no maintainers, add at least one to the generated file");
+    }
+
     println!("Generating configuration file and writing it to the output file provided...");
     let cfg = LegacyCfg {
         teams: actual_state.directory.teams.into_iter().map(Into::into).collect(),
@@ -223,5 +228,41 @@ fn setup_source(args: &BaseArgs) -> Source {
         owner: args.org.clone(),
         repo: args.repo.clone(),
         ref_: args.branch.clone(),
+    }
+}
+
+/// Return the names of the teams provided that have no maintainers.
+fn teams_without_maintainers(teams: &[directory::Team]) -> Vec<&str> {
+    teams
+        .iter()
+        .filter(|team| team.maintainers.is_empty())
+        .map(|team| team.name.as_str())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use clowarden_core::directory::Team;
+
+    use super::teams_without_maintainers;
+
+    #[test]
+    fn test_teams_without_maintainers_returns_only_those_teams() {
+        // Setup a team with maintainers and another one with only members
+        let teams = vec![
+            Team {
+                name: "team1".to_string(),
+                maintainers: vec!["user1".to_string()],
+                ..Default::default()
+            },
+            Team {
+                name: "team2".to_string(),
+                members: vec!["user2".to_string()],
+                ..Default::default()
+            },
+        ];
+
+        // Check only the team without maintainers is returned
+        assert_eq!(teams_without_maintainers(&teams), vec!["team2"]);
     }
 }

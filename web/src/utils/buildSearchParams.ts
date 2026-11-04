@@ -26,6 +26,7 @@ const buildSearchParams = (p: URLSearchParams): SearchFiltersURL => {
   });
 
   return {
+    organization: p.has('organization') ? p.get('organization')! : undefined,
     ts_query_web: p.has('ts_query_web') ? p.get('ts_query_web')! : undefined,
     time_range: p.has('time_range') ? p.get('time_range')! : undefined,
     filters: { ...filters },

@@ -14,41 +14,49 @@ declare
     v_applied_to timestamptz := (p_input->>'applied_to');
     v_pr_number bigint[];
     v_pr_merged_by text[];
-    v_tsquery_web tsquery := websearch_to_tsquery(p_input->>'ts_query_web');
+    v_tsquery_web tsquery := websearch_to_tsquery(nullif(btrim(p_input->>'ts_query_web', E' \t\r\n'), ''));
     v_tsquery_web_with_prefix_matching tsquery;
 begin
-    -- Prepare filters
+    -- Prepare service filter
     if p_input ? 'service' and p_input->'service' <> 'null' then
         select array_agg(e::text) into v_service
         from jsonb_array_elements_text(p_input->'service') e;
     end if;
+
+    -- Prepare kind filter
     if p_input ? 'kind' and p_input->'kind' <> 'null' then
         select array_agg(e::text) into v_kind
         from jsonb_array_elements_text(p_input->'kind') e;
     end if;
+
+    -- Prepare pull request number filter
     if p_input ? 'pr_number' and p_input->'pr_number' <> 'null' then
         select array_agg(e::text) into v_pr_number
         from jsonb_array_elements_text(p_input->'pr_number') e;
     end if;
+
+    -- Prepare pull request merged by filter
     if p_input ? 'pr_merged_by' and p_input->'pr_merged_by' <> 'null' then
         select array_agg(e::text) into v_pr_merged_by
         from jsonb_array_elements_text(p_input->'pr_merged_by') e;
     end if;
 
-    -- Prepare v_tsquery_web_with_prefix_matching
+    -- Prepare v_tsquery_web_with_prefix_matching. Lexemes may contain tsquery
+    -- operators, so they go through a tsvector to be quoted as tsquery expects
     if v_tsquery_web is not null then
         select ts_rewrite(
             v_tsquery_web,
             format('
                 select
-                    to_tsquery(lexeme),
-                    to_tsquery(lexeme || '':*'')
+                    array_to_tsvector(array[lexeme])::text::tsquery,
+                    (array_to_tsvector(array[lexeme])::text || '':*'')::tsquery
                 from unnest(tsvector_to_array(to_tsvector(%L))) as lexeme
                 ', p_input->>'ts_query_web'
             )
         ) into v_tsquery_web_with_prefix_matching;
     end if;
 
+    -- Return the requested page of changes and the total count of matches
     return query
     with filtered_changes as (
         select

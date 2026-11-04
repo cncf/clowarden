@@ -1,0 +1,23 @@
+## Reconciliation completed
+
+#### ‼️ Some errors were found during the reconciliation
+  
+## Github
+      
+- Error applying change: **TeamRemoved("test-repo", "team-2")**
+
+```
+first failure
+```
+        
+- Error applying change: **TeamRemoved("test-repo", "team-4")**
+
+```
+second failure
+```
+        
+
+Changes applied successfully:
+
+- team **team-1** has been *removed* from repository **test-repo**
+- team **team-3** has been *removed* from repository **test-repo**
