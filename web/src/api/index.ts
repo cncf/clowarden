@@ -131,17 +131,17 @@ class API_CLASS {
     q += `&applied_from=${encodeURIComponent(timeRange.from)}&applied_to=${encodeURIComponent(timeRange.to)}`;
 
     if (query.organization) {
-      q += `&organization=${query.organization}`;
+      q += `&organization=${encodeURIComponent(query.organization)}`;
     }
 
     if (query.ts_query_web) {
-      q += `&ts_query_web=${query.ts_query_web}`;
+      q += `&ts_query_web=${encodeURIComponent(query.ts_query_web)}`;
     }
 
     if (!isUndefined(query.filters) && !isEmpty(query.filters)) {
       Object.keys(query.filters!).forEach((k: string) => {
         query.filters![k].forEach((f: string, index: number) => {
-          q += `&${k}[${index}]=${f}`;
+          q += `&${k}[${index}]=${encodeURIComponent(f)}`;
         });
       });
     }

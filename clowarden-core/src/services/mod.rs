@@ -34,6 +34,7 @@ pub type DynServiceHandler = Arc<dyn ServiceHandler + Send + Sync>;
 pub struct ChangesSummary {
     pub changes: Vec<DynChange>,
     pub base_ref_config_status: BaseRefConfigStatus,
+    pub warnings: Vec<String>,
 }
 
 /// Type alias to represent some changes applied on a service.

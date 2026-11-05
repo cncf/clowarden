@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 // import { FaRegQuestionCircle } from 'react-icons/fa';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import buildSearchParams from '../../utils/buildSearchParams';
 import prepareQueryString from '../../utils/prepareQueryString';
 import styles from './Searchbar.module.css';
 // import SearchTipsModal from './SearchTipsModal';
@@ -14,6 +15,7 @@ const Searchbar = () => {
   const [searchParams] = useSearchParams();
   const [value, setValue] = useState<string>('');
   const [currentSearch, setCurrentSearch] = useState<string | null>(null);
+  const { organization, time_range: timeRange } = buildSearchParams(searchParams);
 
   useEffect(() => {
     const text = searchParams.get('ts_query_web');
@@ -28,6 +30,8 @@ const Searchbar = () => {
       search: prepareQueryString({
         pageNumber: 1,
         ts_query_web: value,
+        time_range: timeRange,
+        organization: organization,
         filters: {},
       }),
     });
@@ -41,6 +45,8 @@ const Searchbar = () => {
         search: prepareQueryString({
           pageNumber: 1,
           ts_query_web: '',
+          time_range: timeRange,
+          organization: organization,
           filters: {},
         }),
       });

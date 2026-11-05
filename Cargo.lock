@@ -485,6 +485,7 @@ dependencies = [
  "futures",
  "mockall",
  "octorust",
+ "openssl",
  "pem 4.0.0",
  "regex",
  "reqwest",

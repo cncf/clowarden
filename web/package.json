@@ -18,6 +18,7 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -51,7 +52,7 @@
     "analyze": "source-map-explorer --no-border-checks 'build/audit/js/*.js'",
     "start": "yarn copy:static && vite",
     "build": "yarn copy:static && vite build && shx cp -r build/audit/static/* build/audit && shx rm -rf build/audit/static && yarn copy:root-index && yarn copy:images && yarn copy:manifest",
-    "test": "vitest --run --passWithNoTests",
+    "test": "vitest --run",
     "lint": "eslint src --max-warnings 0",
     "lint:fix": "eslint src --max-warnings 0 --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,scss,md}\"",

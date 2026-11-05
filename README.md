@@ -147,7 +147,7 @@ teams:
     # Formation allows populating teams' maintainers and members from the
     # content of other teams
     #
-    #  - Each value must be a valid GitHub team slug
+    #  - Each value must be the slug of a team defined in this configuration file
     #  - Formation is not recursive
     #  - This field can be used in combination with maintainers and members
     formation:
@@ -188,11 +188,13 @@ repositories:
 It's important to keep in mind that..
 
 - GitHub usernames are case sensitive
-- Repositories and team names must contain only lowercase letters, numbers or hyphens (in the case of teams, the GitHub team slug must be used)
+- Team names must contain only lowercase letters, numbers or hyphens (the GitHub team slug must be used)
+- Repository names must contain only letters, numbers, hyphens, underscores or periods
 - Teams maintainers must belong to the organization before being added to the teams
 - Teams maintainers and members fields can be omitted when the field formation is defined and one of the subteams has at least one maintainer
 - It is possible to use the formation field in teams and at the same time explicitly define some team maintainers and members
 - Teams formation is not recursive. If a subteam is also using formation, its subteams will be ignored
+- Teams listed in the formation field must be defined in the configuration file. Referencing any other team is a validation error
 - GitHub repositories permissions granted using teams won't be effective until the team member has accepted the invitation to the organization
 - Before renaming a GitHub username, make sure it's not used as a team maintainer in the configuration file
 

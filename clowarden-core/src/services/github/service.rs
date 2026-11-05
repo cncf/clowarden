@@ -474,7 +474,7 @@ impl Svc for SvcApi {
             ttl_secs = 60,
             sync_writes = "default",
             key = "String",
-            convert = r#"{ format!("{}", repo_name) }"#
+            convert = r#"{ format!("{}/{}", org, repo_name) }"#
         )]
         async fn inner(client: &Client, org: &str, repo_name: &str) -> Result<Vec<RepositoryInvitation>> {
             let invitations = client.repos().list_all_invitations(org, repo_name).await?;
@@ -694,3 +694,6 @@ impl From<&Organization> for Ctx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,321 @@
+[
+  {
+    "change_id": "10000000-0000-0000-0000-000000000001",
+    "service": "github",
+    "kind": "team-added",
+    "extra": {
+      "team": {
+        "name": "team1",
+        "maintainers": ["user1"],
+        "members": ["user2", "user3"]
+      }
+    },
+    "applied_at": 1700000001.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000002",
+    "service": "github",
+    "kind": "team-added",
+    "extra": {
+      "team": {
+        "name": "team2"
+      }
+    },
+    "applied_at": 1700000002.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000003",
+    "service": "github",
+    "kind": "team-removed",
+    "extra": {
+      "team_name": "team3"
+    },
+    "applied_at": 1700000003.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000002",
+      "organization": "org1",
+      "completed_at": 1700000100.25
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000004",
+    "service": "github",
+    "kind": "team-maintainer-added",
+    "extra": {
+      "team_name": "team4",
+      "user_name": "user4"
+    },
+    "applied_at": 1700000004.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000005",
+    "service": "github",
+    "kind": "team-maintainer-removed",
+    "extra": {
+      "team_name": "team5",
+      "user_name": "user5"
+    },
+    "applied_at": 1700000005.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000006",
+    "service": "github",
+    "kind": "team-member-added",
+    "extra": {
+      "team_name": "team6",
+      "user_name": "user6"
+    },
+    "applied_at": 1700000006.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000007",
+    "service": "github",
+    "kind": "team-member-removed",
+    "extra": {
+      "team_name": "team7",
+      "user_name": "user7"
+    },
+    "applied_at": 1700000007.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000008",
+    "service": "github",
+    "kind": "repository-added",
+    "extra": {
+      "repo": {
+        "name": "repo1",
+        "collaborators": {
+          "user8": "admin"
+        },
+        "teams": {
+          "team8": "write"
+        },
+        "visibility": "private"
+      }
+    },
+    "applied_at": 1700000008.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000009",
+    "service": "github",
+    "kind": "repository-added",
+    "extra": {
+      "repo": {
+        "name": "repo2",
+        "visibility": "public"
+      }
+    },
+    "applied_at": 1700000009.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000010",
+    "service": "github",
+    "kind": "repository-team-added",
+    "extra": {
+      "repo_name": "repo3",
+      "team_name": "team9",
+      "role": "maintain"
+    },
+    "applied_at": 1700000010.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000011",
+    "service": "github",
+    "kind": "repository-team-removed",
+    "extra": {
+      "repo_name": "repo4",
+      "team_name": "team10"
+    },
+    "applied_at": 1700000011.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000012",
+    "service": "github",
+    "kind": "repository-team-role-updated",
+    "extra": {
+      "repo_name": "repo5",
+      "team_name": "team11",
+      "role": "triage"
+    },
+    "applied_at": 1700000012.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000013",
+    "service": "github",
+    "kind": "repository-collaborator-added",
+    "extra": {
+      "repo_name": "repo6",
+      "user_name": "user9",
+      "role": "read"
+    },
+    "applied_at": 1700000013.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000014",
+    "service": "github",
+    "kind": "repository-collaborator-removed",
+    "extra": {
+      "repo_name": "repo7",
+      "user_name": "user10"
+    },
+    "applied_at": 1700000014.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000015",
+    "service": "github",
+    "kind": "repository-collaborator-role-updated",
+    "extra": {
+      "repo_name": "repo8",
+      "user_name": "user11",
+      "role": "write"
+    },
+    "applied_at": 1700000015.5,
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000001",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5
+    }
+  },
+  {
+    "change_id": "10000000-0000-0000-0000-000000000016",
+    "service": "github",
+    "kind": "repository-visibility-updated",
+    "extra": {
+      "repo_name": "repo9",
+      "visibility": "internal"
+    },
+    "applied_at": 1700000016.5,
+    "error": "visibility update failed",
+    "reconciliation": {
+      "reconciliation_id": "00000000-0000-0000-0000-000000000003",
+      "organization": "org1",
+      "completed_at": 1700000100.25,
+      "pr_number": 12,
+      "pr_created_by": "user1",
+      "pr_merged_by": "user2",
+      "pr_merged_at": 1699999900.5,
+      "error": "some changes failed"
+    }
+  }
+]

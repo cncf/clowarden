@@ -157,3 +157,9 @@ pub fn setup_client(
 
     Ok(Client::custom(user_agent, credentials, middleware_client))
 }
+
+#[cfg(any(test, feature = "testing"))]
+pub mod http_fake;
+
+#[cfg(test)]
+mod tests;

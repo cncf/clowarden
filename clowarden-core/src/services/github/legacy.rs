@@ -3,7 +3,10 @@
 //! state instances from the legacy configuration.
 
 pub(crate) mod sheriff {
+    use std::sync::LazyLock;
+
     use anyhow::{Context, Error, Result, format_err};
+    use regex::Regex;
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -12,6 +15,12 @@ pub(crate) mod sheriff {
         multierror::MultiError,
         services::github::state::Repository,
     };
+
+    /// Characters GitHub allows in repository names. Names end up in the
+    /// comments posted to PRs, so anything else could alter how they render.
+    static VALID_REPOSITORY_NAME: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^[A-Za-z0-9._\-]+$").expect("expr in VALID_REPOSITORY_NAME to be valid")
+    });
 
     /// Sheriff configuration.
     /// https://github.com/electron/sheriff#permissions-file
@@ -52,6 +61,13 @@ pub(crate) mod sheriff {
                     merr.push(format_err!("repo[{id}]: name must be provided"));
                 }
 
+                // Name must be valid
+                if !repo.name.is_empty() && !VALID_REPOSITORY_NAME.is_match(&repo.name) {
+                    merr.push(format_err!(
+                        "repo[{i}]: name must contain only letters, numbers, hyphens, underscores or periods"
+                    ));
+                }
+
                 // No duplicate config per repo
                 if !repo.name.is_empty() {
                     if repos_seen.contains(&&repo.name) {
@@ -79,4 +95,7 @@ pub(crate) mod sheriff {
             Ok(())
         }
     }
+
+    #[cfg(test)]
+    mod tests;
 }

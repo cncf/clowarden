@@ -14,7 +14,7 @@ use octorust::{
     Client,
     auth::JWTCredentials,
     types::{
-        ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, JobStatus,
+        ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, DiffEntry, JobStatus,
         OrganizationSimple, PullRequestData, PullsUpdateReviewRequest, Repository, SimpleUser,
     },
 };
@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use clowarden_core::cfg::{GitHubApp, Organization};
+
+#[cfg(test)]
+mod tests;
 
 /// Name used for the check run in GitHub.
 const CHECK_RUN_NAME: &str = "CLOWarden";
@@ -33,7 +36,7 @@ pub(crate) trait GH {
     /// Create a check run.
     async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()>;
 
-    /// List pull request files.
+    /// List pull request files, including the previous name of renamed files.
     async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>>;
 
     /// Post the comment provided in the repository's pull request given.
@@ -101,14 +104,8 @@ impl GH for GHApi {
     /// [GH::list_pr_files]
     async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>> {
         let client = self.get_client(ctx.inst_id)?;
-        let files = client
-            .pulls()
-            .list_all_files(&ctx.owner, &ctx.repo, pr_number)
-            .await?
-            .iter()
-            .map(|e| e.filename.clone())
-            .collect();
-        Ok(files)
+        let entries = client.pulls().list_all_files(&ctx.owner, &ctx.repo, pr_number).await?;
+        Ok(diff_entries_file_names(&entries))
     }
 
     /// [GH::post_comment]
@@ -210,6 +207,17 @@ pub(crate) fn new_checks_create_request(
         started_at: None,
         status,
     }
+}
+
+/// Return the names of the files in the diff entries provided. Renamed files
+/// are reported by both names, so that moving a file away counts as changing it.
+fn diff_entries_file_names(entries: &[DiffEntry]) -> Vec<FileName> {
+    entries
+        .iter()
+        .flat_map(|e| [&e.filename, &e.previous_filename])
+        .filter(|filename| !filename.is_empty())
+        .cloned()
+        .collect()
 }
 
 /// Information about the target of a GitHub API request.

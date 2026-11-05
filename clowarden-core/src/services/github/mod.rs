@@ -1,6 +1,6 @@
 //! This module contains the implementation of the GitHub service handler.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result, format_err};
 use as_any::Downcast;
@@ -26,6 +26,10 @@ use self::{
 mod legacy;
 pub mod service;
 pub mod state;
+#[cfg(test)]
+mod testing;
+#[cfg(test)]
+mod tests;
 pub use state::State;
 
 /// GitHub's service name.
@@ -41,6 +45,54 @@ impl Handler {
     /// Create a new Handler instance.
     pub fn new(gh: DynGH, svc: DynSvc) -> Self {
         Self { gh, svc }
+    }
+
+    /// Return the problems found in the users added as team members or
+    /// repository collaborators by the changes provided, including the ones
+    /// in new teams and repositories. Teams' maintainers are not checked here
+    /// because State::validate already requires them to be organization
+    /// members.
+    async fn find_user_problems(&self, ctx: &Ctx, changes: &Changes) -> Vec<String> {
+        // Collect users to validate from changes
+        let mut users_to_validate = BTreeSet::new();
+        for change in &changes.directory {
+            match change {
+                DirectoryChange::TeamAdded(team) => users_to_validate.extend(&team.members),
+                DirectoryChange::TeamMemberAdded(_, user_name) => {
+                    users_to_validate.insert(user_name);
+                }
+                _ => {}
+            }
+        }
+        for change in &changes.repositories {
+            match change {
+                RepositoryChange::RepositoryAdded(repo) => {
+                    if let Some(collaborators) = &repo.collaborators {
+                        users_to_validate.extend(collaborators.keys());
+                    }
+                }
+                RepositoryChange::CollaboratorAdded(_, user_name, _) => {
+                    users_to_validate.insert(user_name);
+                }
+                _ => {}
+            }
+        }
+
+        // Validate users collected
+        let mut problems = vec![];
+        for user_name in users_to_validate {
+            match self.svc.get_user_login(ctx, user_name).await {
+                Ok(valid_user_name) => {
+                    if user_name != &valid_user_name {
+                        problems.push(format!(
+                            "user[{user_name}]: invalid username, should be {valid_user_name}",
+                        ));
+                    }
+                }
+                Err(err) => problems.push(format!("user[{user_name}]: error validating username: {err}")),
+            }
+        }
+        problems
     }
 
     /// Helper function to get the invitation id for a given user in a
@@ -61,37 +113,11 @@ impl Handler {
         Ok(invitation_id)
     }
 
-    /// Validate users found in some of the changes provided.
+    /// Validate the users added by the changes provided.
     async fn validate_users(&self, ctx: &Ctx, changes: &Changes) -> Result<()> {
         let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
-
-        // Collect users to validate from changes
-        let mut users_to_validate = HashSet::new();
-        for change in &changes.directory {
-            if let DirectoryChange::TeamMemberAdded(_, user_name) = change {
-                users_to_validate.insert(user_name);
-            }
-        }
-        for change in &changes.repositories {
-            if let RepositoryChange::CollaboratorAdded(_, user_name, _) = change {
-                users_to_validate.insert(user_name);
-            }
-        }
-
-        // Validate users collected
-        for user_name in users_to_validate {
-            match self.svc.get_user_login(ctx, user_name).await {
-                Ok(valid_user_name) => {
-                    if user_name != &valid_user_name {
-                        merr.push(format_err!(
-                            "user[{user_name}]: invalid username, should be {valid_user_name}",
-                        ));
-                    }
-                }
-                Err(err) => {
-                    merr.push(format_err!("user[{user_name}]: error validating username: {err}"));
-                }
-            }
+        for problem in self.find_user_problems(ctx, changes).await {
+            merr.push(format_err!("{problem}"));
         }
 
         if merr.contains_errors() {
@@ -105,30 +131,37 @@ impl Handler {
 impl ServiceHandler for Handler {
     /// [ServiceHandler::get_changes_summary]
     async fn get_changes_summary(&self, org: &Organization, head_src: &Source) -> Result<ChangesSummary> {
+        // Load the head and base states
         let ctx = Ctx::from(org);
         let base_src = Source::from(org);
         let head_state =
             State::new_from_config(self.gh.clone(), self.svc.clone(), &org.legacy, &ctx, head_src).await?;
-        let (changes, base_ref_config_status) =
-            match State::new_from_config(self.gh.clone(), self.svc.clone(), &org.legacy, &ctx, &base_src)
-                .await
-            {
-                Ok(base_state) => {
-                    let changes = base_state.diff(&head_state);
-                    self.validate_users(&ctx, &changes).await?;
-                    let repositories_changes = changes
-                        .repositories
-                        .into_iter()
-                        .map(|change| Box::new(change) as DynChange)
-                        .collect();
-                    (repositories_changes, BaseRefConfigStatus::Valid)
-                }
-                Err(_) => (vec![], BaseRefConfigStatus::Invalid),
-            };
+        let base_state =
+            State::new_from_config(self.gh.clone(), self.svc.clone(), &org.legacy, &ctx, &base_src).await;
+
+        // Get the changes between the states and check the users they add
+        let (changes, base_ref_config_status, warnings) = if let Ok(base_state) = base_state {
+            // Diff the states and fail the validation if any user is invalid
+            let changes = base_state.diff(&head_state);
+            self.validate_users(&ctx, &changes).await?;
+
+            // Prepare the repositories changes for the summary
+            let repositories_changes =
+                changes.repositories.into_iter().map(|change| Box::new(change) as DynChange).collect();
+            (repositories_changes, BaseRefConfigStatus::Valid, vec![])
+        } else {
+            // An unreadable base can't be diffed, and that's what a repair PR
+            // looks like, so all the users in the head are checked but any
+            // problem found doesn't fail the validation
+            let changes = State::default().diff(&head_state);
+            let warnings = self.find_user_problems(&ctx, &changes).await;
+            (vec![], BaseRefConfigStatus::Invalid, warnings)
+        };
 
         Ok(ChangesSummary {
             changes,
             base_ref_config_status,
+            warnings,
         })
     }
 
@@ -187,14 +220,15 @@ impl ServiceHandler for Handler {
                     self.svc.add_repository_team(&ctx, repo_name, team_name, role).await.err()
                 }
                 RepositoryChange::TeamRemoved(repo_name, team_name) => {
-                    // If the team has just been deleted from the directory in
-                    // this reconciliation, there is no need to remove it from
-                    // the repository as this will be done automatically when
-                    // the team is deleted from GitHub
+                    // If the team has just been successfully deleted from the
+                    // directory in this reconciliation, there is no need to
+                    // remove it from the repository as this will be done
+                    // automatically when the team is deleted from GitHub
                     for entry in &changes_applied {
                         let change = (*entry.change).downcast_ref::<DirectoryChange>();
                         if let Some(DirectoryChange::TeamRemoved(team_removed_name)) = change
                             && team_name == team_removed_name
+                            && entry.error.is_none()
                         {
                             continue 'changes_repositories;
                         }
@@ -209,27 +243,29 @@ impl ServiceHandler for Handler {
                     self.svc.add_repository_collaborator(&ctx, repo_name, user_name, role).await.err()
                 }
                 RepositoryChange::CollaboratorRemoved(repo_name, user_name) => {
-                    if let Some(invitation_id) =
-                        self.get_repository_invitation(&ctx, repo_name, user_name).await?
-                    {
-                        self.svc.remove_repository_invitation(&ctx, repo_name, invitation_id).await.err()
-                    } else {
-                        self.svc.remove_repository_collaborator(&ctx, repo_name, user_name).await.err()
+                    match self.get_repository_invitation(&ctx, repo_name, user_name).await {
+                        Ok(Some(invitation_id)) => {
+                            self.svc.remove_repository_invitation(&ctx, repo_name, invitation_id).await.err()
+                        }
+                        Ok(None) => {
+                            self.svc.remove_repository_collaborator(&ctx, repo_name, user_name).await.err()
+                        }
+                        Err(err) => Some(err),
                     }
                 }
                 RepositoryChange::CollaboratorRoleUpdated(repo_name, user_name, role) => {
-                    if let Some(invitation_id) =
-                        self.get_repository_invitation(&ctx, repo_name, user_name).await?
-                    {
-                        self.svc
+                    match self.get_repository_invitation(&ctx, repo_name, user_name).await {
+                        Ok(Some(invitation_id)) => self
+                            .svc
                             .update_repository_invitation(&ctx, repo_name, invitation_id, role)
                             .await
-                            .err()
-                    } else {
-                        self.svc
+                            .err(),
+                        Ok(None) => self
+                            .svc
                             .update_repository_collaborator_role(&ctx, repo_name, user_name, role)
                             .await
-                            .err()
+                            .err(),
+                        Err(err) => Some(err),
                     }
                 }
                 RepositoryChange::VisibilityUpdated(repo_name, visibility) => {

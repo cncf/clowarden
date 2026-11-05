@@ -202,3 +202,6 @@ pub(crate) struct SearchChangesInput {
     pub applied_successfully: Option<bool>,
     pub ts_query_web: Option<String>,
 }
+
+#[cfg(test)]
+mod tests;
