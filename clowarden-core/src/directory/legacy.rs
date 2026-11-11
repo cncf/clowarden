@@ -156,7 +156,7 @@ pub mod sheriff {
 
                 // Name must be provided
                 if team.name.is_empty() {
-                    merr.push(format_err!("team[{id}: name must be provided"));
+                    merr.push(format_err!("team[{id}]: name must be provided"));
                 }
 
                 // Name must be valid
@@ -173,6 +173,13 @@ pub mod sheriff {
                         continue;
                     }
                     teams_seen.push(&team.name);
+                }
+
+                // Formation can only reference teams defined in the configuration
+                for team_name in team.formation.as_deref().unwrap_or_default() {
+                    if !self.teams.iter().any(|t| &t.name == team_name) {
+                        merr.push(format_err!("team[{id}]: unknown team {team_name} in formation"));
+                    }
                 }
 
                 // At least one maintainer required
@@ -298,3 +305,6 @@ pub(crate) mod cncf {
         pub image: Option<String>,
     }
 }
+
+#[cfg(test)]
+mod tests;

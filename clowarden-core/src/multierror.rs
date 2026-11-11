@@ -89,3 +89,42 @@ pub fn format_error(err: &Error) -> Result<String> {
     format_error(err, 0, &mut s)?;
     Ok(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Error, format_err};
+
+    use super::{MultiError, format_error};
+
+    #[test]
+    fn test_format_error_flattens_context_less_multierrors() {
+        // Setup the error shape returned when loading a configuration
+        let mut rules = MultiError::new(None);
+        rules.push(format_err!("rule violated"));
+        let mut merr = MultiError::new(Some("invalid config".to_string()));
+        merr.push(rules.into());
+        merr.push(format_err!("boom").context("error fetching file"));
+        let err = Error::from(merr).context("outer context");
+
+        // Check children are indented once and cause chains go one level deeper
+        assert_eq!(
+            format_error(&err).unwrap(),
+            "\n- invalid config\n\t- rule violated\n\t- error fetching file\n\t\t- boom"
+        );
+    }
+
+    #[test]
+    fn test_format_error_indents_context_chain_in_nested_multierror() {
+        // Setup the error shape built by the validate job
+        let mut svc = MultiError::new(Some("svc".to_string()));
+        svc.push(format_err!("root").context("mid").context("top"));
+        let mut merr = MultiError::new(None);
+        merr.push(svc.into());
+
+        // Check each context level is one level deeper than the previous one
+        assert_eq!(
+            format_error(&merr.into()).unwrap(),
+            "\n- svc\n\t- top\n\t\t- mid\n\t\t\t- root"
+        );
+    }
+}

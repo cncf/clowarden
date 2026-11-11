@@ -86,5 +86,8 @@ export default defineConfig({
     setupFiles: './src/setupTests.ts',
     globals: true,
     css: true,
+    env: {
+      TZ: 'UTC',
+    },
   },
 });

@@ -94,7 +94,7 @@ server:
       ...
       -----END RSA PRIVATE KEY-----
 
-    # GitHub application webhook secret
+    # GitHub application webhook secret (must not be empty)
     webhookSecret: <YOUR_WEBHOOK_SECRET>
 
 services:
@@ -146,6 +146,35 @@ You can run the backend tests by using `cargo` as well. Just run the following c
 
 ```sh
 cargo test
+```
+
+These tests do not need a database, as the ones that do are ignored by default.
+
+### Database tests
+
+The database tests need [pgTAP](https://pgtap.org) and its `pg_prove` tool. They use two dedicated databases with the migrations applied, as the pgTAP tests expect no data and the Rust contract tests commit the rows they create.
+
+Create the first database and apply the migrations to it, using a Tern configuration file that points to it:
+
+```sh
+psql -U postgres -c 'create database clowarden_tests'
+psql -U postgres -d clowarden_tests -c 'create extension pgtap'
+cd database/migrations
+TERN_CONF=<PATH_TO_TERN_CONF> ./migrate.sh
+cd ../..
+```
+
+Create the second one from it:
+
+```sh
+psql -U postgres -c 'create database clowarden_contract_tests template clowarden_tests'
+```
+
+Then run the pgTAP tests and the Rust contract tests:
+
+```sh
+(cd database/tests && pg_prove -U postgres -d clowarden_tests --recurse --ext .sql .)
+CLOWARDEN_DB_TESTS_URL=postgres://postgres@localhost:5432/clowarden_contract_tests cargo test -p clowarden-server -- --ignored db_contracts
 ```
 
 ## Frontend

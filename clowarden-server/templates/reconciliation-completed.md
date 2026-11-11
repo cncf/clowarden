@@ -36,6 +36,15 @@
       {%- endfor %}
     {%- endif %}
 
+    {%- if !self.successful_changes(service_name).is_empty() %}
+      {{~ "" }}
+      {{~ "Changes applied successfully:" }}
+      {{~ "" -}}
+      {%- for change_applied in self.successful_changes(service_name) %}
+        {{~ change_applied.change.template_format().unwrap() -}}
+      {% endfor %}
+    {%- endif %}
+
     {%- if errors.get(service_name.to_owned()).is_some() %}
       {{~ "" }}
       {{~ "Errors:" -}}

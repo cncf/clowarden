@@ -34,6 +34,80 @@ jobs:
       - name: Run backend tests
         run: cargo test
 
+  tests-database:
+    runs-on: ubuntu-latest
+    env:
+      PGDATABASE: clowarden_tests
+      PGHOST: localhost
+      PGUSER: postgres
+      TERN_CONF: /tmp/tern.conf
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_DB: clowarden_tests
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+          cache: false
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      # The dbmigrator image installs this tern module, whose latest version is
+      # v1.13.0. Tern v2 lives in a different module path
+      - name: Install tern
+        run: go install github.com/jackc/tern@v1.13.0
+      - name: Install pg_prove
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libtap-parser-sourcehandler-pgtap-perl
+      - name: Install pgTAP
+        run: |
+          docker exec ${{ job.services.postgres.id }} sh -c \
+            'apt-get update && apt-get install --yes --no-install-recommends "postgresql-$PG_MAJOR-pgtap"'
+          psql --command 'create extension pgtap'
+      - name: Apply database migrations
+        working-directory: ./database/migrations
+        run: |
+          cat > "$TERN_CONF" <<EOF
+          [database]
+          host = $PGHOST
+          port = 5432
+          database = $PGDATABASE
+          user = $PGUSER
+          EOF
+          ./migrate.sh
+      # The database tests below fail if the function is not loaded again
+      - name: Check migrations reload the database functions
+        working-directory: ./database/migrations
+        run: |
+          psql --command 'drop function search_changes(jsonb)'
+          ./migrate.sh
+      # The pgTAP tests expect no data, and the Rust contract tests commit the
+      # rows they create, so each suite uses its own database
+      - name: Create Rust contract tests database
+        run: psql --dbname postgres --command 'create database clowarden_contract_tests template clowarden_tests'
+      - name: Run database tests
+        working-directory: ./database/tests
+        run: pg_prove --recurse --ext .sql --verbose .
+      - name: Run Rust database contract tests
+        env:
+          CLOWARDEN_DB_TESTS_URL: postgres://postgres@localhost:5432/clowarden_contract_tests
+        run: cargo test -p clowarden-server -- --ignored db_contracts
+
   tests-frontend:
     runs-on: ubuntu-latest
     env:
