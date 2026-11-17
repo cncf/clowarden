@@ -17,7 +17,7 @@ use crate::{
             testing::{
                 BASE_REF, ORG, ServiceRepository, ServiceState, ServiceTeam, expect_config_file,
                 expect_config_load, expect_service_load, multierror_messages, sample_ctx, sample_org,
-                sample_permissions, sample_repository, sample_repository_invitation, sample_src,
+                sample_permissions, sample_repository, sample_repository_invitation, sample_src, sample_team,
                 sample_team_membership, sample_user,
             },
         },
@@ -727,6 +727,59 @@ async fn test_new_from_service_excludes_archived_repositories_and_temporary_fork
 }
 
 #[tokio::test]
+async fn test_new_from_service_excludes_enterprise_teams() {
+    // Setup service
+    let mut svc = MockSvc::new();
+    let service_state = ServiceState {
+        repositories: vec![
+            ServiceRepository {
+                teams: vec![("ent:team1", Role::Admin), ("team1", Role::Write)],
+                ..ServiceRepository::new("repo1")
+            },
+            ServiceRepository {
+                teams: vec![("ent:team2", Role::Write)],
+                ..ServiceRepository::new("repo2")
+            },
+        ],
+        teams: vec![
+            ServiceTeam::new("ent-team1", "maintainer1"),
+            ServiceTeam {
+                ignored: true,
+                ..ServiceTeam::new("ent:team1", "maintainer1")
+            },
+            ServiceTeam::new("team1", "maintainer1"),
+        ],
+        ..Default::default()
+    };
+    expect_service_load(&mut svc, &service_state);
+
+    // Build the state
+    let state = State::new_from_service(Arc::new(svc), &sample_ctx()).await.unwrap();
+
+    // Check the team whose slug only resembles an enterprise one was kept
+    let team_names: Vec<&str> = state.directory.teams.iter().map(|team| team.name.as_str()).collect();
+    assert_eq!(team_names, vec!["ent-team1", "team1"]);
+
+    // Check the access granted to enterprise teams was left out
+    assert_eq!(
+        state.repositories,
+        vec![
+            Repository {
+                name: "repo1".to_string(),
+                teams: Some(BTreeMap::from([("team1".to_string(), Role::Write)])),
+                visibility: Some(Visibility::Public),
+                ..Default::default()
+            },
+            Repository {
+                name: "repo2".to_string(),
+                visibility: Some(Visibility::Public),
+                ..Default::default()
+            },
+        ]
+    );
+}
+
+#[tokio::test]
 async fn test_new_from_service_fails_when_collaborators_cannot_be_listed() {
     // Setup service
     let mut svc = MockSvc::new();
@@ -749,6 +802,36 @@ async fn test_new_from_service_fails_when_collaborators_cannot_be_listed() {
     assert_eq!(
         format!("{err:#}"),
         "error getting repository info: error listing repository repo1 collaborators: boom"
+    );
+}
+
+#[tokio::test]
+async fn test_new_from_service_fails_when_team_invitations_cannot_be_listed() {
+    // Setup service
+    let mut svc = MockSvc::new();
+    svc.expect_list_teams()
+        .times(1)
+        .returning(|_| Box::pin(future::ready(Ok(vec![sample_team("Team 1", "team1")]))));
+    svc.expect_list_team_maintainers()
+        .withf(|ctx, team_name| ctx.org == ORG && team_name == "team1")
+        .times(1)
+        .returning(|_, _| Box::pin(future::ready(Ok(vec![]))));
+    svc.expect_list_team_members()
+        .withf(|ctx, team_name| ctx.org == ORG && team_name == "team1")
+        .times(1)
+        .returning(|_, _| Box::pin(future::ready(Ok(vec![]))));
+    svc.expect_list_team_invitations()
+        .withf(|ctx, team_name| ctx.org == ORG && team_name == "team1")
+        .times(1)
+        .returning(|_, _| Box::pin(future::ready(Err(format_err!("boom")))));
+
+    // Build the state
+    let err = State::new_from_service(Arc::new(svc), &sample_ctx()).await.unwrap_err();
+
+    // Check the failure identifies the team
+    assert_eq!(
+        format!("{err:#}"),
+        "error getting team info: error listing team team1 invitations: boom"
     );
 }
 

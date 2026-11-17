@@ -85,6 +85,9 @@ pub(crate) struct ServiceState {
 pub(crate) struct ServiceTeam {
     pub slug: &'static str,
 
+    /// Whether the state load must leave this team out without inspecting it.
+    pub ignored: bool,
+
     /// Invitations in the team. The membership is the one returned for the
     /// invited user, and a value of none means it must not be requested.
     pub invitations: Vec<(&'static str, Option<TeamMembership>)>,
@@ -258,6 +261,11 @@ pub(crate) fn sample_src() -> Source {
     Source::from(&sample_org())
 }
 
+/// Build a team as returned when listing the organization's ones.
+pub(crate) fn sample_team(name: &str, slug: &str) -> Team {
+    from_json(json!({ "name": name, "slug": slug }))
+}
+
 /// Build a team membership.
 pub(crate) fn sample_team_membership(role: TeamMembershipRole, state: OrgMembershipState) -> TeamMembership {
     TeamMembership {
@@ -330,9 +338,18 @@ fn expect_repository_load(svc: &mut MockSvc, repo: &ServiceRepository) {
         .returning(move |_, _| Box::pin(future::ready(Ok(teams.clone()))));
 }
 
-/// Expect the details of the team provided to be read.
+/// Expect the details of the team provided to be read, unless it is one the
+/// state load has to leave out.
 fn expect_team_load(svc: &mut MockSvc, team: &ServiceTeam) {
     let slug = team.slug;
+
+    if team.ignored {
+        svc.expect_get_team_membership().withf(move |_, team_name, _| team_name == slug).never();
+        svc.expect_list_team_invitations().withf(move |_, team_name| team_name == slug).never();
+        svc.expect_list_team_maintainers().withf(move |_, team_name| team_name == slug).never();
+        svc.expect_list_team_members().withf(move |_, team_name| team_name == slug).never();
+        return;
+    }
 
     let maintainers: Vec<SimpleUser> = team.maintainers.iter().map(|login| sample_user(login)).collect();
     svc.expect_list_team_maintainers()
@@ -393,9 +410,4 @@ fn sample_repository_team(slug: &str, role: &Role) -> Team {
         "permissions": sample_permissions(role),
         "slug": slug,
     }))
-}
-
-/// Build a team as returned when listing the organization's ones.
-fn sample_team(name: &str, slug: &str) -> Team {
-    from_json(json!({ "name": name, "slug": slug }))
 }

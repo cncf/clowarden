@@ -17,7 +17,7 @@ CLOWarden monitors pull requests created in the configuration repository and, wh
 Sometimes, however, this may not be enough. Changes can be applied manually to the service bypassing the configuration files (i.e. from the GitHub settings UI), and CLOWarden still needs to make sure that the actual state matches the desired state documented in the configuration files. So in addition to on-demand reconciliation jobs, CLOWarden runs *periodic* ones to ensure everything is all right all the time.
 
 > [!WARNING]
-> Please note that during the reconciliation process, in an attempt to keep the actual state in sync with the desired state, CLOWarden **will remove** resources **that are not defined** in the configuration file (i.e. teams and permissions, but not repositories). Always make sure that the configuration file represents the actual state (or that you are OK with the changes that will be applied) before enabling the service. The `generate` subcommand of the CLI tool can be helpful to create an initial configuration file from the actual state, whereas the `diff` subcommand can be used to display the differences between the actual and desired state (i.e. what changes will be applied when the service is enabled based on the current configuration file).
+> Please note that during the reconciliation process, in an attempt to keep the actual state in sync with the desired state, CLOWarden **will remove** resources **that are not defined** in the configuration file (i.e. teams and permissions, but not repositories). Always make sure that the configuration file represents the actual state (or that you are OK with the changes that will be applied) before enabling the service. The `generate` subcommand of the CLI tool can be helpful to create an initial configuration file from the actual state, whereas the `diff` subcommand can be used to display the differences between the actual and desired state (i.e. what changes will be applied when the service is enabled based on the current configuration file). Enterprise teams are the exception: CLOWarden ignores them, so neither they nor the permissions granted to them will be removed.
 
 ### State
 
@@ -195,6 +195,7 @@ It's important to keep in mind that..
 - It is possible to use the formation field in teams and at the same time explicitly define some team maintainers and members
 - Teams formation is not recursive. If a subteam is also using formation, its subteams will be ignored
 - Teams listed in the formation field must be defined in the configuration file. Referencing any other team is a validation error
+- Enterprise teams (their slug starts with `ent:`) are managed at the enterprise level and cannot be used in the configuration file. CLOWarden ignores them and the repositories permissions granted to them: they are not included in the `generate` and `diff` subcommands output, and they are not modified during reconciliation
 - GitHub repositories permissions granted using teams won't be effective until the team member has accepted the invitation to the organization
 - Before renaming a GitHub username, make sure it's not used as a team maintainer in the configuration file
 
