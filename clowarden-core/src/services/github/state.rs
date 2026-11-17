@@ -20,6 +20,7 @@ use octorust::types::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::debug;
 
 use crate::{
     cfg::Legacy,
@@ -33,6 +34,10 @@ use super::{
     legacy,
     service::{Ctx, DynSvc},
 };
+
+/// Prefix GitHub adds to the slug of enterprise teams. Organization teams
+/// cannot use it, as their slugs do not contain colons.
+const ENTERPRISE_TEAM_SLUG_PREFIX: &str = "ent:";
 
 /// Regular expression to match temporary private forks created for GitHub
 /// security advisories.
@@ -139,24 +144,51 @@ impl State {
     }
 
     /// Create a new State instance from the service's actual state.
+    #[allow(clippy::too_many_lines)]
     pub async fn new_from_service(svc: DynSvc, ctx: &Ctx) -> Result<State> {
         let mut state = State::default();
 
-        // Teams
-        for team in stream::iter(svc.list_teams(ctx).await?)
+        // Teams (enterprise teams are left out without inspecting them)
+        let (enterprise_teams, teams): (Vec<_>, Vec<_>) =
+            svc.list_teams(ctx).await?.into_iter().partition(|team| is_enterprise_team(&team.slug));
+        if !enterprise_teams.is_empty() {
+            let slugs: Vec<&str> = enterprise_teams.iter().map(|team| team.slug.as_str()).collect();
+            debug!(teams = ?slugs, "ignoring enterprise teams");
+        }
+        for team in stream::iter(teams)
             .map(|team| async {
                 // Get maintainers and members (including pending invitations)
-                let mut maintainers: Vec<UserName> =
-                    svc.list_team_maintainers(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
-                let mut members: Vec<UserName> =
-                    svc.list_team_members(ctx, &team.slug).await?.into_iter().map(|u| u.login).collect();
-                for invitation in svc.list_team_invitations(ctx, &team.slug).await? {
+                let mut maintainers: Vec<UserName> = svc
+                    .list_team_maintainers(ctx, &team.slug)
+                    .await
+                    .context(format!("error listing team {} maintainers", team.slug))?
+                    .into_iter()
+                    .map(|u| u.login)
+                    .collect();
+                let mut members: Vec<UserName> = svc
+                    .list_team_members(ctx, &team.slug)
+                    .await
+                    .context(format!("error listing team {} members", team.slug))?
+                    .into_iter()
+                    .map(|u| u.login)
+                    .collect();
+                for invitation in svc
+                    .list_team_invitations(ctx, &team.slug)
+                    .await
+                    .context(format!("error listing team {} invitations", team.slug))?
+                {
                     // Skip invitations without login (e.g. email invitations)
                     if invitation.login.is_empty() {
                         continue;
                     }
 
-                    let membership = svc.get_team_membership(ctx, &team.slug, &invitation.login).await?;
+                    let membership = svc
+                        .get_team_membership(ctx, &team.slug, &invitation.login)
+                        .await
+                        .context(format!(
+                            "error getting team {} membership of {}",
+                            team.slug, invitation.login
+                        ))?;
                     if membership.state == OrgMembershipState::Pending {
                         match membership.role {
                             TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
@@ -218,14 +250,25 @@ impl State {
                     Some(collaborators)
                 };
 
-                // Get teams
-                let teams: BTreeMap<TeamName, Role> = svc
+                // Get teams (access granted to enterprise teams is left out)
+                let mut teams: BTreeMap<TeamName, Role> = BTreeMap::new();
+                for team in svc
                     .list_repository_teams(ctx, &repo.name)
                     .await
                     .context(format!("error listing repository {} teams", repo.name))?
-                    .into_iter()
-                    .map(|t| (t.slug, t.permissions.into()))
-                    .collect();
+                {
+                    let role: Role = team.permissions.into();
+                    if is_enterprise_team(&team.slug) {
+                        debug!(
+                            repo = repo.name,
+                            team = team.slug,
+                            %role,
+                            "ignoring enterprise team access to repository"
+                        );
+                        continue;
+                    }
+                    teams.insert(team.slug, role);
+                }
                 let teams = if teams.is_empty() { None } else { Some(teams) };
 
                 // Setup repository from info collected
@@ -808,6 +851,13 @@ impl Change for RepositoryChange {
 
         Ok(s)
     }
+}
+
+/// Check if the slug provided belongs to an enterprise team. Enterprise teams
+/// are managed at the enterprise level and cannot be defined in the
+/// configuration, so they are not part of the state.
+fn is_enterprise_team(slug: &str) -> bool {
+    slug.starts_with(ENTERPRISE_TEAM_SLUG_PREFIX)
 }
 
 #[cfg(test)]

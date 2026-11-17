@@ -43,7 +43,7 @@ jobs:
       TERN_CONF: /tmp/tern.conf
     services:
       postgres:
-        image: postgres:17.11
+        image: postgres:17.12
         env:
           POSTGRES_DB: clowarden_tests
           POSTGRES_HOST_AUTH_METHOD: trust

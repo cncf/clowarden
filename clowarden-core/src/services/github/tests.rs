@@ -317,7 +317,7 @@ async fn test_reconcile_applies_nothing_when_service_matches_config() {
             ServiceRepository {
                 collaborators: vec![("admin1", Role::Admin), ("user1", Role::Write)],
                 invitations: vec![sample_repository_invitation(1, Some("invited1"), &Role::Read)],
-                teams: vec![("my-team", Role::Write)],
+                teams: vec![("ent:team1", Role::Admin), ("my-team", Role::Write)],
                 ..ServiceRepository::new("repo1")
             },
             ServiceRepository {
@@ -325,23 +325,30 @@ async fn test_reconcile_applies_nothing_when_service_matches_config() {
                 ..ServiceRepository::new("repo1-ghsa-2345-cfgh-jmpq")
             },
             ServiceRepository {
+                teams: vec![("ent:team1", Role::Write)],
                 visibility: "private",
                 ..ServiceRepository::new("repo2")
             },
         ],
-        teams: vec![ServiceTeam {
-            invitations: vec![(
-                "pending1",
-                Some(sample_team_membership(
-                    TeamMembershipRole::Member,
-                    OrgMembershipState::Pending,
-                )),
-            )],
-            maintainers: vec!["admin1", "maintainer1"],
-            members: vec!["member1"],
-            name: "My Team",
-            ..ServiceTeam::new("my-team", "maintainer1")
-        }],
+        teams: vec![
+            ServiceTeam {
+                ignored: true,
+                ..ServiceTeam::new("ent:team1", "maintainer1")
+            },
+            ServiceTeam {
+                invitations: vec![(
+                    "pending1",
+                    Some(sample_team_membership(
+                        TeamMembershipRole::Member,
+                        OrgMembershipState::Pending,
+                    )),
+                )],
+                maintainers: vec!["admin1", "maintainer1"],
+                members: vec!["member1"],
+                name: "My Team",
+                ..ServiceTeam::new("my-team", "maintainer1")
+            },
+        ],
     };
     expect_reconcile_load(&mut svc, &service_state);
 
