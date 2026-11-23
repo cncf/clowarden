@@ -24,7 +24,11 @@ impl<'a> ReconciliationCompleted<'a> {
         changes_applied: &'a HashMap<ServiceName, ChangesApplied>,
         errors: &'a HashMap<ServiceName, Error>,
     ) -> Self {
-        let services = changes_applied.keys().chain(errors.keys()).copied().collect();
+        // Deduplicate services that appear in both changes_applied and errors
+        // (for example when reconciliation stops early after applying changes)
+        let mut services: Vec<ServiceName> = changes_applied.keys().chain(errors.keys()).copied().collect();
+        services.sort_unstable();
+        services.dedup();
         let some_changes_applied = (|| {
             for service_changes_applied in changes_applied.values() {
                 if !service_changes_applied.is_empty() {
@@ -59,8 +63,7 @@ impl<'a> ReconciliationCompleted<'a> {
     fn successful_changes(&self, service_name: &str) -> Vec<&ChangeApplied> {
         self.changes_applied
             .get(service_name)
-            .map(|changes| changes.iter().filter(|change| change.error.is_none()).collect())
-            .unwrap_or_default()
+            .map_or_default(|changes| changes.iter().filter(|change| change.error.is_none()).collect())
     }
 }
 

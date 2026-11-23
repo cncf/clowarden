@@ -49,6 +49,9 @@ server:
   # Address to listen on
   addr: 0.0.0.0:9000
 
+  # Minimum interval between periodic full reconciliations per organization (in seconds)
+  reconcileFrequency: 21600
+
   # Path with static assets
   staticPath: /home/clowarden/web/build
 

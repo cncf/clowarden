@@ -1,6 +1,11 @@
-use clowarden_core::github::http_fake::{FakeGitHub, Request, Route};
-use openssl::rsa::Rsa;
+use std::time::Duration;
+
+use clowarden_core::github::{
+    RateLimitPolicy,
+    http_fake::{FakeGitHub, Request, Route},
+};
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::*;
 
@@ -69,6 +74,90 @@ fn test_event_try_from_maps_unknown_action_to_other() {
 }
 
 #[test]
+fn test_event_try_from_parses_check_run_rerequested_event() {
+    let payload = json!({
+        "action": "rerequested",
+        "check_run": {
+            "name": CHECK_RUN_NAME,
+            "head_sha": HEAD_SHA,
+            "pull_requests": [
+                {
+                    "number": PR_NUMBER,
+                    "base": { "ref": "master", "sha": "base-sha" },
+                    "head": { "ref": "feature", "sha": HEAD_SHA }
+                }
+            ]
+        },
+        "organization": {
+            "id": 1,
+            "login": ORG,
+            "node_id": "node",
+            "url": "",
+            "repos_url": "",
+            "events_url": "",
+            "hooks_url": "",
+            "issues_url": "",
+            "members_url": "",
+            "public_members_url": "",
+            "avatar_url": ""
+        },
+        "repository": recorded_event(OPENED_EVENT)["repository"]
+    });
+    let header = Some(HeaderValue::from_static("check_run"));
+    let body = serde_json::to_vec(&payload).unwrap();
+
+    let Event::CheckRun(event) = Event::try_from((&header, &body[..])).unwrap() else {
+        panic!("expected CheckRun event");
+    };
+    assert_eq!(event.action, CheckRunEventAction::Rerequested);
+    assert_eq!(event.check_run.name, CHECK_RUN_NAME);
+    assert_eq!(event.check_run.head_sha, HEAD_SHA);
+    assert_eq!(event.check_run.pull_requests.len(), 1);
+    assert_eq!(event.check_run.pull_requests[0].number, PR_NUMBER);
+}
+
+#[test]
+fn test_event_try_from_parses_check_suite_rerequested_event() {
+    let payload = json!({
+        "action": "rerequested",
+        "check_suite": {
+            "head_sha": HEAD_SHA,
+            "pull_requests": [
+                {
+                    "number": PR_NUMBER,
+                    "base": { "ref": "master", "sha": "base-sha" },
+                    "head": { "ref": "feature", "sha": HEAD_SHA }
+                }
+            ]
+        },
+        "organization": {
+            "id": 1,
+            "login": ORG,
+            "node_id": "node",
+            "url": "",
+            "repos_url": "",
+            "events_url": "",
+            "hooks_url": "",
+            "issues_url": "",
+            "members_url": "",
+            "public_members_url": "",
+            "avatar_url": ""
+        },
+        "repository": recorded_event(OPENED_EVENT)["repository"]
+    });
+    let header = Some(HeaderValue::from_static("check_suite"));
+    let body = serde_json::to_vec(&payload).unwrap();
+
+    let Event::CheckSuite(event) = Event::try_from((&header, &body[..])).unwrap() else {
+        panic!("expected CheckSuite event");
+    };
+    assert_eq!(event.action, CheckRunEventAction::Rerequested);
+    assert_eq!(event.check_suite.head_sha, HEAD_SHA);
+    assert_eq!(event.check_suite.pull_requests.len(), 1);
+    assert_eq!(event.check_suite.pull_requests[0].number, PR_NUMBER);
+}
+
+#[test]
 fn test_event_try_from_parses_closed_event() {
     // Parse the event
     let event = parse_pull_request_event(&recorded_event(CLOSED_EVENT));
@@ -78,6 +167,28 @@ fn test_event_try_from_parses_closed_event() {
     assert_eq!(event.number, PR_NUMBER);
     assert!(!event.pull_request.merged);
     assert_eq!(event.pull_request.merged_by, None);
+}
+
+#[test]
+fn test_event_try_from_parses_edited_and_reopened_events() {
+    // Parse edited event with base branch change
+    let mut edited = recorded_event(OPENED_EVENT);
+    edited["action"] = json!("edited");
+    edited["changes"] = json!({
+        "base": {
+            "ref": { "from": "develop" },
+            "sha": { "from": "0000000" }
+        }
+    });
+    let event = parse_pull_request_event(&edited);
+    assert_eq!(event.action, PullRequestEventAction::Edited);
+    assert!(event.changes.unwrap().base.is_some());
+
+    // Parse reopened event
+    let mut reopened = recorded_event(OPENED_EVENT);
+    reopened["action"] = json!("reopened");
+    let event = parse_pull_request_event(&reopened);
+    assert_eq!(event.action, PullRequestEventAction::Reopened);
 }
 
 #[test]
@@ -143,6 +254,29 @@ async fn test_gh_api_create_check_run_posts_check_run() {
 }
 
 #[tokio::test]
+async fn test_gh_api_list_pr_files_marks_truncated_at_3000_entries() {
+    // Setup GitHub API stand-in returning 3,000 diff entries
+    let entries: Vec<Value> = (0..MAX_PR_FILES)
+        .map(|i| json!({"filename": format!("file-{i}.txt"), "status": "modified"}))
+        .collect();
+    let fake = FakeGitHub::start(vec![Route::new(
+        "GET",
+        PR_FILES_PATH,
+        200,
+        serde_json::to_string(&entries).unwrap(),
+    )]);
+    let gh = setup_gh_api(&fake);
+
+    // List the pull request files
+    let pr_files = gh.list_pr_files(&setup_ctx(), PR_NUMBER).await.unwrap();
+
+    // Check truncation flag and per_page=100 query parameter
+    assert!(pr_files.is_truncated);
+    assert_eq!(pr_files.files.len(), MAX_PR_FILES);
+    assert_eq!(fake.requests()[0].query_param("per_page"), Some("100"));
+}
+
+#[tokio::test]
 async fn test_gh_api_list_pr_files_returns_both_names_of_renamed_files() {
     // Setup GitHub API stand-in with a renamed file
     let fake = FakeGitHub::start(vec![Route::new(
@@ -154,11 +288,16 @@ async fn test_gh_api_list_pr_files_returns_both_names_of_renamed_files() {
     let gh = setup_gh_api(&fake);
 
     // List the pull request files
-    let file_names = gh.list_pr_files(&setup_ctx(), PR_NUMBER).await.unwrap();
+    let pr_files = gh.list_pr_files(&setup_ctx(), PR_NUMBER).await.unwrap();
 
-    // Check the request sent and the file names returned
-    assert_eq!(fake.requests(), vec![Request::new("GET", PR_FILES_PATH, None)]);
-    assert_eq!(file_names, vec!["new-config.yaml", "config.yaml"]);
+    // Check the request sent (with per_page=100) and the file names returned
+    let requests = fake.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(requests[0].path, PR_FILES_PATH);
+    assert_eq!(requests[0].query_param("per_page"), Some("100"));
+    assert!(!pr_files.is_truncated);
+    assert_eq!(pr_files.files, vec!["new-config.yaml", "config.yaml"]);
 }
 
 #[tokio::test]
@@ -193,8 +332,10 @@ async fn test_gh_api_post_comment_returns_comment_id() {
 fn parse_pull_request_event(payload: &Value) -> PullRequestEvent {
     let header = Some(HeaderValue::from_static("pull_request"));
     let body = serde_json::to_vec(payload).unwrap();
-    let Event::PullRequest(event) = Event::try_from((&header, &body[..])).unwrap();
-    event
+    let Event::PullRequest(event) = Event::try_from((&header, &body[..])).unwrap() else {
+        panic!("expected PullRequest event");
+    };
+    *event
 }
 
 /// Returns the recorded event provided as a JSON value.
@@ -205,23 +346,22 @@ fn recorded_event(event: &str) -> Value {
 /// Returns the context of the requests sent in the tests.
 fn setup_ctx() -> Ctx {
     Ctx {
+        cancel_token: CancellationToken::new(),
         inst_id: INSTALLATION_ID,
         owner: ORG.to_string(),
         repo: REPO.to_string(),
     }
 }
 
-/// Returns a GHApi instance whose client for the test installation sends all
-/// requests to the fake provided. The key is generated on the fly as GHApi
-/// requires a valid one, even though the client seeded does not use it.
+/// Returns a GHApi instance backed by a production-middleware ClientPool
+/// pointed at the fake provided.
 fn setup_gh_api(fake: &FakeGitHub) -> GHApi {
-    let private_key = Rsa::generate(2048).unwrap().private_key_to_pem().unwrap();
-    let gh = GHApi::new(&GitHubApp {
-        app_id: 1,
-        private_key: String::from_utf8(private_key).unwrap(),
-        ..Default::default()
-    })
-    .unwrap();
-    gh.clients.write().unwrap().insert(INSTALLATION_ID, Arc::new(fake.client()));
-    gh
+    let policy = RateLimitPolicy {
+        jitter_max: Duration::ZERO,
+        mutation_interval: Duration::ZERO,
+        secondary_base_backoff: Duration::from_millis(10),
+        transient_base_backoff: Duration::from_millis(10),
+        ..RateLimitPolicy::default()
+    };
+    GHApi::new(fake.client_pool(policy))
 }

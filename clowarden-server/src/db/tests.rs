@@ -33,6 +33,58 @@ const SECURITY_TEAM: &str = "security";
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL"]
+async fn db_contracts_get_reconciliation_schedule_state_tracks_clean_and_failed_runs() {
+    // Setup database and inputs for a clean run, a service-error run, and a
+    // failed-change run
+    let db = setup_db();
+    let clean_input = setup_pr_input();
+    let mut service_err_input = setup_pr_input();
+    service_err_input.org.name = format!("{}-service-err", clean_input.org.name);
+    let mut change_err_input = setup_pr_input();
+    change_err_input.org.name = format!("{}-change-err", clean_input.org.name);
+
+    // Register one clean reconciliation and two failed ones
+    db.register_reconciliation(
+        &clean_input,
+        &HashMap::from([(GITHUB, vec![setup_member_added()])]),
+        &HashMap::new(),
+    )
+    .await
+    .unwrap();
+    db.register_reconciliation(
+        &service_err_input,
+        &HashMap::new(),
+        &HashMap::from([(GITHUB, format_err!("github is down"))]),
+    )
+    .await
+    .unwrap();
+    db.register_reconciliation(
+        &change_err_input,
+        &HashMap::from([(GITHUB, vec![setup_member_removed()])]),
+        &HashMap::new(),
+    )
+    .await
+    .unwrap();
+
+    // Query reconciliation schedule state
+    let schedule_state = db.get_reconciliation_schedule_state().await.unwrap();
+
+    // Check clean org has both timestamps while failed orgs only have last_attempt_at
+    let clean_status = schedule_state.get(&clean_input.org.name).unwrap();
+    assert!(clean_status.last_attempt_at.is_some());
+    assert!(clean_status.last_clean_at.is_some());
+
+    let service_err_status = schedule_state.get(&service_err_input.org.name).unwrap();
+    assert!(service_err_status.last_attempt_at.is_some());
+    assert_eq!(service_err_status.last_clean_at, None);
+
+    let change_err_status = schedule_state.get(&change_err_input.org.name).unwrap();
+    assert!(change_err_status.last_attempt_at.is_some());
+    assert_eq!(change_err_status.last_clean_at, None);
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL"]
 async fn db_contracts_register_reconciliation_makes_change_searchable_by_keywords() {
     // Setup database and input
     let db = setup_db();

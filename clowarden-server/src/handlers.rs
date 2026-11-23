@@ -18,9 +18,8 @@ use axum::{
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
 use mime::APPLICATION_JSON;
-use octorust::types::{ChecksCreateRequestConclusion, JobStatus};
 use sha2::Sha256;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TrySendError};
 use tower::ServiceBuilder;
 use tower_http::{
     services::{ServeDir, ServeFile},
@@ -35,8 +34,11 @@ use clowarden_core::cfg::Organization;
 use crate::{
     cfg::Config,
     db::{DynDB, SearchChangesInput},
-    github::{self, Ctx, DynGH, Event, EventError, PullRequestEventAction},
-    jobs::{Job, ReconcileInput, ValidateInput},
+    github::{
+        CHECK_RUN_NAME, CheckRunEvent, CheckRunEventAction, CheckRunPullRequest, CheckSuiteEvent, Event,
+        EventError, PullRequestEvent, PullRequestEventAction,
+    },
+    jobs::{CheckRunRerequestedInput, LatestPrHeads, PullRequestTriageInput, TriageInput},
 };
 
 #[cfg(test)]
@@ -66,26 +68,24 @@ const PAGINATION_TOTAL_COUNT: &str = "pagination-total-count";
 /// Message returned when a search query cannot be parsed.
 const INVALID_SEARCH_QUERY_MSG: &str = "invalid search query";
 
-/// Message used when a pull request does not update configuration files.
-const NO_CONFIG_CHANGES_MSG: &str = "No CLOWarden configuration changes detected";
-
 /// Router's state.
 #[derive(Clone, FromRef)]
 struct RouterState {
     db: DynDB,
-    gh: DynGH,
-    webhook_secret: String,
-    webhook_secret_fallback: Option<String>,
-    jobs_tx: mpsc::UnboundedSender<Job>,
+    latest_pr_heads: LatestPrHeads,
     orgs: Vec<Organization>,
+    triage_tx: mpsc::Sender<TriageInput>,
+    webhook_secret: String,
+
+    webhook_secret_fallback: Option<String>,
 }
 
 /// Setup HTTP server router.
 pub(crate) fn setup_router(
     cfg: &Config,
     db: DynDB,
-    gh: DynGH,
-    jobs_tx: mpsc::UnboundedSender<Job>,
+    latest_pr_heads: LatestPrHeads,
+    triage_tx: mpsc::Sender<TriageInput>,
 ) -> Result<Router> {
     // Setup some paths
     let static_path = cfg.server.static_path.clone();
@@ -164,11 +164,11 @@ pub(crate) fn setup_router(
         .layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()))
         .with_state(RouterState {
             db,
-            gh,
+            latest_pr_heads,
+            orgs: cfg.organizations.clone().unwrap_or_default(),
+            triage_tx,
             webhook_secret: cfg.server.github_app.webhook_secret.clone(),
             webhook_secret_fallback: cfg.server.github_app.webhook_secret_fallback.clone(),
-            jobs_tx,
-            orgs: cfg.organizations.clone().unwrap_or_default(),
         });
 
     Ok(router)
@@ -184,12 +184,13 @@ async fn health_check() -> impl IntoResponse {
 
 /// Handler that processes webhook events from GitHub.
 #[allow(clippy::let_with_type_underscore)]
+#[allow(clippy::unused_async)]
 #[instrument(skip_all, err(Debug))]
 async fn event(
-    State(gh): State<DynGH>,
     State(webhook_secret): State<String>,
     State(webhook_secret_fallback): State<Option<String>>,
-    State(jobs_tx): State<mpsc::UnboundedSender<Job>>,
+    State(latest_pr_heads): State<LatestPrHeads>,
+    State(triage_tx): State<mpsc::Sender<TriageInput>>,
     State(orgs): State<Vec<Organization>>,
     headers: HeaderMap,
     body: Bytes,
@@ -223,87 +224,16 @@ async fn event(
     };
     trace!(?event, "webhook event received");
 
-    // Take action on event when needed
+    // Enqueue actionable events for asynchronous triage and respond quickly
     match event {
+        Event::CheckRun(event) => {
+            enqueue_check_run_event(&event, &orgs, &triage_tx)?;
+        }
+        Event::CheckSuite(event) => {
+            enqueue_check_suite_event(&event, &orgs, &triage_tx)?;
+        }
         Event::PullRequest(event) => {
-            // Check event comes from a registered organization target
-            let Some(gh_org) = &event.organization else {
-                return Ok(());
-            };
-            let Some(org) = find_target_org(
-                &orgs,
-                &gh_org.login,
-                &event.repository.name,
-                &event.pull_request.base.ref_,
-            )
-            .cloned() else {
-                return Ok(());
-            };
-
-            // Check if we are interested on the event's action
-            if !is_supported_pr_action(&event.action) {
-                return Ok(());
-            }
-
-            // Check if the PR updates the configuration files
-            match pr_updates_config(
-                gh.clone(),
-                &org,
-                &event.repository.name,
-                &event.pull_request.base.ref_,
-                event.pull_request.number,
-            )
-            .await
-            {
-                Ok(PullRequestConfigChanges::Changed) => {
-                    // It does, go ahead processing event
-                }
-                Ok(PullRequestConfigChanges::Unchanged) => {
-                    // It does not, report success when branch protection may require a check
-                    if should_report_no_config_changes(&event.action) {
-                        report_no_config_changes(
-                            gh.clone(),
-                            &org,
-                            event.pull_request.number,
-                            &event.pull_request.head.sha,
-                        )
-                        .await;
-                    }
-                    return Ok(());
-                }
-                Ok(PullRequestConfigChanges::NotTarget) => return Ok(()),
-                Err(err) => {
-                    error!(?err, "error checking if pr updates config");
-                    return Ok(());
-                }
-            }
-
-            // Take action on event
-            match event.action {
-                PullRequestEventAction::Opened | PullRequestEventAction::Synchronize => {
-                    // Create validation in-progress check run
-                    let ctx = Ctx::from(&org);
-                    let check_body = github::new_checks_create_request(
-                        event.pull_request.head.sha.clone(),
-                        Some(JobStatus::InProgress),
-                        None,
-                        "Validating configuration changes",
-                    );
-                    if let Err(err) = gh.create_check_run(&ctx, &check_body).await {
-                        error!(?err, "error creating validation in-progress check run");
-                    }
-
-                    // Enqueue validation job
-                    let input = ValidateInput::new(org, event.pull_request);
-                    _ = jobs_tx.send(Job::Validate(input));
-                }
-                PullRequestEventAction::Closed if event.pull_request.merged => {
-                    // Enqueue reconcile job
-                    let input = ReconcileInput::new(org, event.pull_request);
-                    _ = jobs_tx.send(Job::Reconcile(input));
-                }
-                _ => {}
-            }
+            enqueue_pull_request_event(*event, &orgs, &latest_pr_heads, &triage_tx)?;
         }
     }
 
@@ -350,17 +280,133 @@ async fn search_changes(State(db): State<DynDB>, RawQuery(query): RawQuery) -> i
 
 // Helpers.
 
-/// Create a successful check run when a pull request does not update
-/// configuration files.
-async fn create_no_config_changes_check(gh: DynGH, org: &Organization, head_sha: &str) -> Result<()> {
-    let ctx = Ctx::from(org);
-    let check_body = github::new_checks_create_request(
-        head_sha.to_string(),
-        Some(JobStatus::Completed),
-        Some(ChecksCreateRequestConclusion::Success),
-        NO_CONFIG_CHANGES_MSG,
-    );
-    gh.create_check_run(&ctx, &check_body).await
+/// Enqueue a `check_run.rerequested` webhook event for matching organizations.
+fn enqueue_check_run_event(
+    event: &CheckRunEvent,
+    orgs: &[Organization],
+    triage_tx: &mpsc::Sender<TriageInput>,
+) -> std::result::Result<(), (StatusCode, String)> {
+    // Ignore non-rerequested actions and check runs belonging to other apps
+    if event.action != CheckRunEventAction::Rerequested || event.check_run.name != CHECK_RUN_NAME {
+        return Ok(());
+    }
+    enqueue_rerequested_check(
+        event.organization.as_ref().map(|org| org.login.as_str()),
+        &event.repository.name,
+        &event.check_run.head_sha,
+        &event.check_run.pull_requests,
+        orgs,
+        triage_tx,
+    )
+}
+
+/// Enqueue a `check_suite.rerequested` webhook event ("Re-run all checks") for
+/// matching organizations.
+fn enqueue_check_suite_event(
+    event: &CheckSuiteEvent,
+    orgs: &[Organization],
+    triage_tx: &mpsc::Sender<TriageInput>,
+) -> std::result::Result<(), (StatusCode, String)> {
+    // Ignore actions other than rerequested
+    if event.action != CheckRunEventAction::Rerequested {
+        return Ok(());
+    }
+    enqueue_rerequested_check(
+        event.organization.as_ref().map(|org| org.login.as_str()),
+        &event.repository.name,
+        &event.check_suite.head_sha,
+        &event.check_suite.pull_requests,
+        orgs,
+        triage_tx,
+    )
+}
+
+/// Enqueue a re-requested check run or check suite for every configured
+/// organization matching `(organization_login, repository_name)`.
+fn enqueue_rerequested_check(
+    organization_login: Option<&str>,
+    repository_name: &str,
+    head_sha: &str,
+    pull_requests: &[CheckRunPullRequest],
+    orgs: &[Organization],
+    triage_tx: &mpsc::Sender<TriageInput>,
+) -> std::result::Result<(), (StatusCode, String)> {
+    // Match registered organizations owning the repository
+    let Some(org_login) = organization_login else {
+        return Ok(());
+    };
+    let matching_orgs: Vec<Organization> = orgs
+        .iter()
+        .filter(|org| org.name == org_login && org.repository == repository_name)
+        .cloned()
+        .collect();
+    if matching_orgs.is_empty() {
+        return Ok(());
+    }
+
+    // Reserve a triage slot for each matching target branch
+    let received_at = tokio::time::Instant::now();
+    for org in matching_orgs {
+        let pr_numbers: Vec<i64> =
+            pull_requests.iter().filter(|pr| pr.base.ref_ == org.branch).map(|pr| pr.number).collect();
+        if !pull_requests.is_empty() && pr_numbers.is_empty() {
+            continue;
+        }
+        let permit = reserve_triage_slot(triage_tx)?;
+        permit.send(TriageInput::CheckRunRerequested(CheckRunRerequestedInput {
+            head_sha: head_sha.to_string(),
+            org,
+            pr_numbers,
+            received_at,
+        }));
+    }
+    Ok(())
+}
+
+/// Enqueue an actionable pull request webhook event after updating latest head
+/// state (ignoring stale out-of-order or redelivered webhooks).
+fn enqueue_pull_request_event(
+    event: PullRequestEvent,
+    orgs: &[Organization],
+    latest_pr_heads: &LatestPrHeads,
+    triage_tx: &mpsc::Sender<TriageInput>,
+) -> std::result::Result<(), (StatusCode, String)> {
+    // Check event comes from a registered organization target
+    let Some(gh_org) = &event.organization else {
+        return Ok(());
+    };
+    let Some(org) = find_target_org(
+        orgs,
+        &gh_org.login,
+        &event.repository.name,
+        &event.pull_request.base.ref_,
+    )
+    .cloned() else {
+        return Ok(());
+    };
+
+    // Ignore unsupported actions, non-base edits, and closed-unmerged PRs before triage
+    if !is_actionable_pr_event(&event) {
+        return Ok(());
+    }
+
+    // Reserve a slot atomically and record the latest PR head SHA before
+    // publishing so triage cannot observe a stale SHA
+    let is_validation_event = event.action.is_validation_action();
+    let org_name = org.name.clone();
+    let pr_number = event.pull_request.number;
+    let head_sha = event.pull_request.head.sha.clone();
+    let triage_input = PullRequestTriageInput::new(org, event.action, event.pull_request, event.before);
+    let updated_at = triage_input.pr_updated_at;
+    let before_sha = triage_input.pr_before_sha.clone();
+    let permit = reserve_triage_slot(triage_tx)?;
+    if is_validation_event
+        && latest_pr_heads.record(&org_name, pr_number, head_sha, updated_at, before_sha).is_none()
+    {
+        return Ok(());
+    }
+    permit.send(TriageInput::PullRequest(triage_input));
+    Ok(())
 }
 
 /// Find the organization target for a pull request event.
@@ -375,6 +421,30 @@ fn find_target_org<'a>(
     })
 }
 
+/// Reserve a slot in the webhook triage queue, translating backpressure into
+/// `503 Service Unavailable`.
+fn reserve_triage_slot(
+    triage_tx: &mpsc::Sender<TriageInput>,
+) -> std::result::Result<mpsc::Permit<'_, TriageInput>, (StatusCode, String)> {
+    match triage_tx.try_reserve() {
+        Ok(permit) => Ok(permit),
+        Err(TrySendError::Full(())) => {
+            error!("webhook triage queue is full; rejecting delivery");
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "webhook triage queue is full".to_string(),
+            ))
+        }
+        Err(TrySendError::Closed(())) => {
+            error!("webhook triage queue is closed; rejecting delivery");
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "webhook triage queue is unavailable".to_string(),
+            ))
+        }
+    }
+}
+
 /// Helper for mapping any error into a `500 Internal Server Error` response.
 #[allow(clippy::needless_pass_by_value)]
 fn internal_error<E>(err: E) -> StatusCode
@@ -385,70 +455,20 @@ where
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-/// Check if the pull request action is supported.
-fn is_supported_pr_action(action: &PullRequestEventAction) -> bool {
-    matches!(
-        action,
-        PullRequestEventAction::Closed | PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
-    )
-}
-
-/// Check if the pull request in the event provided updates any of the
-/// organization configuration files.
-async fn pr_updates_config(
-    gh: DynGH,
-    org: &Organization,
-    repository_name: &str,
-    base_ref: &str,
-    pr_number: i64,
-) -> Result<PullRequestConfigChanges> {
-    // Check if repository in PR matches with config
-    if org.repository != repository_name {
-        return Ok(PullRequestConfigChanges::NotTarget);
-    }
-
-    // Check if base branch in PR matches with config
-    if org.branch != base_ref {
-        return Ok(PullRequestConfigChanges::NotTarget);
-    }
-
-    // Check if any of the configuration files is on the pr
-    if org.legacy.enabled {
-        let mut legacy_cfg_files = vec![&org.legacy.sheriff_permissions_path];
-        if let Some(cncf_people_path) = &org.legacy.cncf_people_path {
-            legacy_cfg_files.push(cncf_people_path);
+/// Check if the pull request event requires triage. Closed pull requests that
+/// were not merged and `edited` events that did not retarget the base branch
+/// of an open pull request are ignored before querying GitHub.
+fn is_actionable_pr_event(event: &PullRequestEvent) -> bool {
+    match event.action {
+        PullRequestEventAction::Opened
+        | PullRequestEventAction::Reopened
+        | PullRequestEventAction::Synchronize => true,
+        PullRequestEventAction::Edited => {
+            event.pull_request.state == octorust::types::State::Open
+                && event.changes.as_ref().is_some_and(|changes| changes.base.is_some())
         }
-        let ctx = Ctx::from(org);
-        for filename in gh.list_pr_files(&ctx, pr_number).await? {
-            if legacy_cfg_files.contains(&&filename) {
-                return Ok(PullRequestConfigChanges::Changed);
-            }
-        }
-    }
-
-    Ok(PullRequestConfigChanges::Unchanged)
-}
-
-/// Check if a no-configuration-changes report should be created for the pull
-/// request action.
-fn should_report_no_config_changes(action: &PullRequestEventAction) -> bool {
-    matches!(
-        action,
-        PullRequestEventAction::Opened | PullRequestEventAction::Synchronize
-    )
-}
-
-/// Report a successful no-configuration-changes check when possible.
-async fn report_no_config_changes(gh: DynGH, org: &Organization, pr_number: i64, head_sha: &str) {
-    if let Err(err) = create_no_config_changes_check(gh, org, head_sha).await {
-        error!(
-            ?err,
-            org = %org.name,
-            repo = %org.repository,
-            %head_sha,
-            pr_number,
-            "error creating no configuration changes check run"
-        );
+        PullRequestEventAction::Closed => event.pull_request.merged,
+        PullRequestEventAction::Other => false,
     }
 }
 
@@ -496,21 +516,4 @@ fn verify_signature(
     } else {
         Err(format_err!("no valid signature found"))
     }
-}
-
-// Types.
-
-/// Configuration change status for a pull request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PullRequestConfigChanges {
-    /// The pull request updates CLOWarden configuration files.
-    Changed,
-
-    /// The pull request targets a repository or branch not managed by this
-    /// CLOWarden instance.
-    NotTarget,
-
-    /// The pull request targets this CLOWarden instance but does not update
-    /// configuration files.
-    Unchanged,
 }

@@ -16,15 +16,15 @@ use crate::{
             service::MockSvc,
             testing::{
                 BASE_REF, ORG, ServiceRepository, ServiceState, ServiceTeam, expect_config_file,
-                expect_config_load, expect_service_load, multierror_messages, sample_ctx, sample_org,
-                sample_permissions, sample_repository, sample_repository_invitation, sample_src, sample_team,
-                sample_team_membership, sample_user,
+                expect_config_load, expect_narrowed_service_load, expect_service_load, multierror_messages,
+                sample_ctx, sample_org, sample_permissions, sample_repository, sample_repository_invitation,
+                sample_src, sample_team, sample_team_membership,
             },
         },
     },
 };
 
-use super::{Changes, Repository, RepositoryChange, Role, State, Visibility};
+use super::{Changes, Repository, RepositoryChange, Role, ServiceMetadata, State, Visibility};
 
 #[test]
 fn test_diff_detects_multiple_changes() {
@@ -836,6 +836,121 @@ async fn test_new_from_service_fails_when_team_invitations_cannot_be_listed() {
 }
 
 #[tokio::test]
+async fn test_new_from_service_for_desired_fails_fast_on_first_repository_error() {
+    // Setup desired state with two managed repositories
+    let desired = State {
+        repositories: vec![
+            Repository {
+                name: "repo1".to_string(),
+                ..Default::default()
+            },
+            Repository {
+                name: "repo2".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let metadata = ServiceMetadata {
+        repositories: vec![
+            sample_repository("repo1", "public", false),
+            sample_repository("repo2", "public", false),
+        ],
+        ..Default::default()
+    };
+
+    // Setup service where repo1 fails immediately and repo2 must never be queried
+    let mut svc = MockSvc::new();
+    svc.expect_list_teams().times(1).returning(|_| Box::pin(future::ready(Ok(vec![]))));
+    svc.expect_list_repository_collaborators()
+        .withf(|_, repo_name| repo_name == "repo1")
+        .times(1)
+        .returning(|_, _| Box::pin(future::ready(Err(format_err!("boom")))));
+    svc.expect_list_repository_collaborators()
+        .withf(|_, repo_name| repo_name == "repo2")
+        .never();
+
+    // Load narrowed actual state
+    let result = State::new_from_service_for_desired(Arc::new(svc), &sample_ctx(), &desired, &metadata).await;
+
+    // Check failure stopped immediately without querying repo2
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_new_from_service_for_desired_retains_expired_repository_invitations_in_snapshot() {
+    // Setup desired state and metadata for repo1
+    let desired = State {
+        repositories: vec![Repository {
+            name: "repo1".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let metadata = ServiceMetadata {
+        repositories: vec![sample_repository("repo1", "public", false)],
+        ..Default::default()
+    };
+
+    // Setup service with both an active invitation and an expired invitation
+    let mut expired = sample_repository_invitation(2, Some("expired-user"), &Role::Write);
+    expired.expired = true;
+    let mut svc = MockSvc::new();
+    let service_state = ServiceState {
+        repositories: vec![ServiceRepository {
+            invitations: vec![
+                sample_repository_invitation(1, Some("active-user"), &Role::Write),
+                expired,
+            ],
+            ..ServiceRepository::new("repo1")
+        }],
+        ..Default::default()
+    };
+    expect_narrowed_service_load(&mut svc, &service_state);
+
+    // Load narrowed actual state snapshot
+    let snapshot = State::new_from_service_for_desired(Arc::new(svc), &sample_ctx(), &desired, &metadata)
+        .await
+        .unwrap();
+
+    // Check active state excludes the expired invite while the snapshot retains both ids
+    assert_eq!(
+        snapshot.state.repositories[0].collaborators,
+        Some(BTreeMap::from([("active-user".to_string(), Role::Write)]))
+    );
+    let invitation_ids: Vec<i64> = snapshot.repository_invitations["repo1"].iter().map(|i| i.id).collect();
+    assert_eq!(invitation_ids, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn test_new_from_service_ignores_expired_repository_invitations() {
+    // Setup service with both an active invitation and an expired invitation
+    let mut expired = sample_repository_invitation(2, Some("expired-user"), &Role::Write);
+    expired.expired = true;
+    let mut svc = MockSvc::new();
+    let service_state = ServiceState {
+        repositories: vec![ServiceRepository {
+            invitations: vec![
+                sample_repository_invitation(1, Some("active-user"), &Role::Write),
+                expired,
+            ],
+            ..ServiceRepository::new("repo1")
+        }],
+        ..Default::default()
+    };
+    expect_service_load(&mut svc, &service_state);
+
+    // Build the state
+    let state = State::new_from_service(Arc::new(svc), &sample_ctx()).await.unwrap();
+
+    // Check only the active invitation was counted as collaborator access
+    assert_eq!(
+        state.repositories[0].collaborators,
+        Some(BTreeMap::from([("active-user".to_string(), Role::Write)]))
+    );
+}
+
+#[tokio::test]
 async fn test_new_from_service_keeps_admin_role_of_invited_collaborator() {
     // Setup service
     let mut svc = MockSvc::new();
@@ -1230,12 +1345,8 @@ fn sample_directory() -> Directory {
 }
 
 /// Validate the state provided against the organization members given.
+#[allow(clippy::unused_async)]
 async fn validate(state: &State, org_members: Vec<&str>) -> Result<()> {
-    let org_members: Vec<_> = org_members.into_iter().map(sample_user).collect();
-    let mut svc = MockSvc::new();
-    svc.expect_list_org_members()
-        .withf(|ctx| ctx.org == ORG)
-        .times(1)
-        .returning(move |_| Box::pin(future::ready(Ok(org_members.clone()))));
-    state.validate(Arc::new(svc), &sample_ctx()).await
+    let org_members: Vec<String> = org_members.into_iter().map(ToString::to_string).collect();
+    state.validate(&org_members)
 }

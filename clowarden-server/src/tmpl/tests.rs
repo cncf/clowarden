@@ -19,6 +19,30 @@ const GITHUB: ServiceName = "github";
 const TESTDATA_PATH: &str = "src/testdata";
 
 #[test]
+fn test_reconciliation_completed_deduplicates_service_with_partial_changes_and_error() {
+    // Setup a service present in both changes_applied and errors (partial stop)
+    let changes_applied = HashMap::from([(
+        GITHUB,
+        vec![change_applied(
+            Box::new(RepositoryChange::TeamAdded(
+                "test-repo".to_string(),
+                "engineering".to_string(),
+                Role::Write,
+            )),
+            None,
+        )],
+    )]);
+    let errors = HashMap::from([(GITHUB, anyhow!("github rate limit exceeded"))]);
+
+    // Render the comment
+    let output = ReconciliationCompleted::new(&changes_applied, &errors).render().unwrap();
+
+    // Check the service heading, applied change, and error each appear once
+    assert_eq!(output.matches("engineering").count(), 1);
+    assert_eq!(output.matches("github rate limit exceeded").count(), 1);
+}
+
+#[test]
 fn test_reconciliation_completed_success_no_changes() {
     // Setup a reconciliation that had nothing to do in the service
     let changes_applied = HashMap::from([(GITHUB, vec![])]);

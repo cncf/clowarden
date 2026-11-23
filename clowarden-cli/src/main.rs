@@ -5,18 +5,20 @@ use std::{env, fs::File, path::PathBuf, sync::Arc};
 
 use anyhow::{Result, format_err};
 use clap::{Args, Parser, Subcommand};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
 use clowarden_core::{
     cfg::Legacy,
     directory,
-    github::{GHApi, Source},
+    github::{CachingGH, ClientPool, DynGH, GHApi, Source},
     multierror,
     services::{
         self, Change,
         github::{
             self, State,
-            service::{Ctx, SvcApi},
+            service::{Ctx, DynSvc},
+            state::ServiceMetadata,
         },
     },
 };
@@ -114,16 +116,17 @@ async fn diff(args: BaseArgs, github_token: String) -> Result<()> {
     // GitHub
 
     // Setup services
-    let (gh, svc) = setup_services(github_token);
+    let (gh, svc) = setup_services(github_token)?;
     let legacy = setup_legacy(&args);
     let ctx = setup_context(&args.org);
     let src = setup_source(&args);
 
     // Get changes from the actual state to the desired state
     println!("Calculating diff between the actual state and the desired state...");
-    let actual_state = State::new_from_service(svc.clone(), &ctx).await?;
-    let desired_state = State::new_from_config(gh, svc, &legacy, &ctx, &src).await?;
-    let changes = actual_state.diff(&desired_state);
+    let metadata = ServiceMetadata::load(&svc, &ctx).await?;
+    let desired_state = State::new_from_config_with_metadata(gh, &legacy, &metadata, &src).await?;
+    let actual_snapshot = State::new_from_service_for_desired(svc, &ctx, &desired_state, &metadata).await?;
+    let changes = actual_snapshot.state.diff(&desired_state);
 
     // Display changes
     println!("\n# GitHub");
@@ -152,7 +155,7 @@ async fn generate(args: GenerateArgs, github_token: String) -> Result<()> {
     }
 
     println!("Getting actual state from GitHub...");
-    let (_, svc) = setup_services(github_token);
+    let (_, svc) = setup_services(github_token)?;
     let ctx = setup_context(&args.org);
     let actual_state = github::State::new_from_service(svc.clone(), &ctx).await?;
 
@@ -178,7 +181,7 @@ async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
     // GitHub
 
     // Setup services
-    let (gh, svc) = setup_services(github_token);
+    let (gh, svc) = setup_services(github_token)?;
     let legacy = setup_legacy(&args);
     let ctx = setup_context(&args.org);
     let src = setup_source(&args);
@@ -197,11 +200,15 @@ async fn validate(args: BaseArgs, github_token: String) -> Result<()> {
 }
 
 /// Helper function to setup some services from the arguments provided.
-fn setup_services(github_token: String) -> (Arc<GHApi>, Arc<SvcApi>) {
-    let gh = GHApi::new_with_token(github_token.clone());
-    let svc = services::github::service::SvcApi::new_with_token(github_token);
+fn setup_services(github_token: String) -> Result<(DynGH, DynSvc)> {
+    let pool = Arc::new(ClientPool::new_with_token(github_token)?);
+    let gh: DynGH = Arc::new(CachingGH::new(
+        Arc::new(GHApi::new(pool.clone())),
+        CancellationToken::new(),
+    ));
+    let svc: DynSvc = Arc::new(services::github::service::SvcApi::new(pool));
 
-    (Arc::new(gh), Arc::new(svc))
+    Ok((gh, svc))
 }
 
 /// Helper function to create a legacy config instance from the arguments.
@@ -216,8 +223,9 @@ fn setup_legacy(args: &BaseArgs) -> Legacy {
 /// Helper function to create a context instance for the organization provided.
 fn setup_context(org: &str) -> Ctx {
     Ctx {
-        inst_id: None,
+        cancel_token: CancellationToken::new(),
         org: org.to_string(),
+        inst_id: None,
     }
 }
 

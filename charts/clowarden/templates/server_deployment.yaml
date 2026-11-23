@@ -7,12 +7,16 @@ metadata:
     {{- include "chart.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.server.deploy.replicaCount }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: server
       {{- include "chart.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/server_secret.yaml") . | sha256sum }}
       labels:
         app.kubernetes.io/component: server
         {{- include "chart.selectorLabels" . | nindent 8 }}

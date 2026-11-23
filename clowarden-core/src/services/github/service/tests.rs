@@ -1,11 +1,15 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, time::Duration};
 
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     cfg::GitHubApp,
     directory::Team,
-    github::http_fake::{FakeGitHub, Request, Route, generate_app_private_key},
+    github::{
+        RateLimitPolicy,
+        http_fake::{FakeGitHub, Request, Route, generate_app_private_key},
+    },
     services::github::state::{Repository, Role, Visibility},
 };
 
@@ -30,19 +34,63 @@ const USER: &str = "user1";
 const USER_PATH: &str = "/users/user1";
 
 #[tokio::test]
-async fn test_add_repository_collaborator_sends_read_permission() {
-    // Setup fake answering with the invitation created
-    let body = r#"{"repository":{}}"#;
+async fn test_add_repository_collaborator_accepts_no_content_response() {
+    // Setup fake answering 204 when GitHub grants direct access without an invitation
+    let fake = FakeGitHub::start(vec![Route::new("PUT", COLLABORATOR_PATH, 204, "")]);
+    let svc = setup_svc(&fake);
+
+    // Add the collaborator
+    let invitation = svc
+        .add_repository_collaborator(&ctx(ORG), &REPO.to_string(), &USER.to_string(), &Role::Read)
+        .await
+        .unwrap();
+
+    // Check no invitation was returned and the request payload matched
+    assert!(invitation.is_none());
+    let body = json!({ "permission": "pull" });
+    assert_eq!(
+        fake.requests(),
+        vec![Request::new("PUT", COLLABORATOR_PATH, Some(body))]
+    );
+}
+
+#[tokio::test]
+async fn test_add_repository_collaborator_rejects_expired_invitation_response() {
+    // Setup fake answering 201 with an already-expired invitation
+    let body = r#"{"expired":true,"id":7,"repository":{}}"#;
     let fake = FakeGitHub::start(vec![Route::new("PUT", COLLABORATOR_PATH, 201, body)]);
     let svc = setup_svc(&fake);
 
     // Add the collaborator
-    let result = svc
+    let err = svc
         .add_repository_collaborator(&ctx(ORG), &REPO.to_string(), &USER.to_string(), &Role::Read)
-        .await;
+        .await
+        .unwrap_err();
 
-    // Check the request sent
-    assert!(result.is_ok());
+    // Check the expired invitation response was rejected
+    assert_eq!(
+        err.to_string(),
+        "github returned an expired invitation when adding collaborator user1 to repo1"
+    );
+}
+
+#[tokio::test]
+async fn test_add_repository_collaborator_sends_read_permission() {
+    // Setup fake answering with the invitation created
+    let body = r#"{"id":7,"repository":{}}"#;
+    let fake = FakeGitHub::start(vec![Route::new("PUT", COLLABORATOR_PATH, 201, body)]);
+    let svc = setup_svc(&fake);
+
+    // Add the collaborator
+    let invitation = svc
+        .add_repository_collaborator(&ctx(ORG), &REPO.to_string(), &USER.to_string(), &Role::Read)
+        .await
+        .unwrap()
+        .expect("invitation to be returned");
+
+    // Check the created invitation and request sent
+    assert_eq!(invitation.id, INVITATION_ID);
+    assert!(!invitation.expired);
     let body = json!({ "permission": "pull" });
     assert_eq!(
         fake.requests(),
@@ -445,7 +493,7 @@ fn test_new_with_app_creds_allows_getting_installation_client() {
     let svc = SvcApi::new_with_app_creds(&sample_github_app(&generate_app_private_key())).unwrap();
 
     // Check a client is available for the installation
-    assert!(svc.get_client(Some(INSTALLATION_ID)).is_ok());
+    assert!(svc.pool().get_client(Some(INSTALLATION_ID)).is_ok());
 }
 
 #[test]
@@ -460,10 +508,10 @@ fn test_new_with_app_creds_rejects_malformed_pem() {
 #[test]
 fn test_new_with_token_allows_getting_client_without_installation() {
     // Build the instance
-    let svc = SvcApi::new_with_token("token".to_string());
+    let svc = SvcApi::new_with_token("token".to_string()).unwrap();
 
     // Check a client is available when no installation is involved
-    assert!(svc.get_client(None).is_ok());
+    assert!(svc.pool().get_client(None).is_ok());
 }
 
 #[tokio::test]
@@ -656,8 +704,9 @@ async fn test_update_repository_visibility_sends_only_name_and_visibility() {
 /// Create a context targeting the organization provided.
 fn ctx(org: &str) -> Ctx {
     Ctx {
-        inst_id: None,
+        cancel_token: CancellationToken::new(),
         org: org.to_string(),
+        inst_id: None,
     }
 }
 
@@ -685,9 +734,15 @@ fn sample_repository() -> Repository {
     }
 }
 
-/// Setup a SvcApi instance that sends all requests to the fake provided.
+/// Setup a SvcApi instance that sends all requests to the fake provided using
+/// the production middleware and zero-delay test policy.
 fn setup_svc(fake: &FakeGitHub) -> SvcApi {
-    let svc = SvcApi::default();
-    svc.clients.write().unwrap().insert(None, Arc::new(fake.client()));
-    svc
+    let policy = RateLimitPolicy {
+        jitter_max: Duration::ZERO,
+        mutation_interval: Duration::ZERO,
+        secondary_base_backoff: Duration::from_millis(10),
+        transient_base_backoff: Duration::from_millis(10),
+        ..RateLimitPolicy::default()
+    };
+    SvcApi::new(fake.client_pool(policy))
 }

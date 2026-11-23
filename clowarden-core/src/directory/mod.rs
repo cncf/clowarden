@@ -2,7 +2,7 @@
 //! functionality to create new instances or comparing them.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Write,
     sync::LazyLock,
 };
@@ -14,7 +14,7 @@ use serde_json::json;
 
 use crate::{
     cfg::{Legacy, Organization},
-    github::{DynGH, Source},
+    github::{DynGH, Source, is_cancelled_error, is_rate_limit_error},
     services::{BaseRefConfigStatus, Change, ChangeDetails, ChangesSummary, DynChange},
 };
 
@@ -59,13 +59,13 @@ impl Directory {
     pub fn diff(&self, new: &Directory) -> Vec<DirectoryChange> {
         let mut changes = vec![];
 
-        // Teams
-        let teams_old: HashMap<&TeamName, &Team> = self.teams.iter().map(|t| (&t.name, t)).collect();
-        let teams_new: HashMap<&TeamName, &Team> = new.teams.iter().map(|t| (&t.name, t)).collect();
+        // Teams (use ordered maps/sets so PR comments render deterministically)
+        let teams_old: BTreeMap<&TeamName, &Team> = self.teams.iter().map(|t| (&t.name, t)).collect();
+        let teams_new: BTreeMap<&TeamName, &Team> = new.teams.iter().map(|t| (&t.name, t)).collect();
 
         // Teams added/removed
-        let teams_names_old: HashSet<&TeamName> = teams_old.keys().copied().collect();
-        let teams_names_new: HashSet<&TeamName> = teams_new.keys().copied().collect();
+        let teams_names_old: BTreeSet<&TeamName> = teams_old.keys().copied().collect();
+        let teams_names_new: BTreeSet<&TeamName> = teams_new.keys().copied().collect();
         for team_name in teams_names_old.difference(&teams_names_new) {
             changes.push(DirectoryChange::TeamRemoved((*team_name).clone()));
         }
@@ -80,10 +80,10 @@ impl Directory {
                 continue;
             }
 
-            let maintainers_old: HashSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
-            let maintainers_new: HashSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
-            let members_old: HashSet<&UserName> = teams_old[team_name].members.iter().collect();
-            let members_new: HashSet<&UserName> = teams_new[team_name].members.iter().collect();
+            let maintainers_old: BTreeSet<&UserName> = teams_old[team_name].maintainers.iter().collect();
+            let maintainers_new: BTreeSet<&UserName> = teams_new[team_name].maintainers.iter().collect();
+            let members_old: BTreeSet<&UserName> = teams_old[team_name].members.iter().collect();
+            let members_new: BTreeSet<&UserName> = teams_new[team_name].members.iter().collect();
             for user_name in maintainers_old.difference(&maintainers_new) {
                 changes.push(DirectoryChange::TeamMaintainerRemoved(
                     (*team_name).clone(),
@@ -111,19 +111,20 @@ impl Directory {
         }
 
         // Users
-        let users_old: HashMap<&UserFullName, &User> = self.users.iter().map(|u| (&u.full_name, u)).collect();
-        let users_new: HashMap<&UserFullName, &User> = new.users.iter().map(|u| (&u.full_name, u)).collect();
+        let users_old: BTreeMap<&UserFullName, &User> =
+            self.users.iter().map(|u| (&u.full_name, u)).collect();
+        let users_new: BTreeMap<&UserFullName, &User> = new.users.iter().map(|u| (&u.full_name, u)).collect();
 
         // Users added/removed
-        let users_fullnames_old: HashSet<&UserFullName> = users_old.keys().copied().collect();
-        let users_fullnames_new: HashSet<&UserFullName> = users_new.keys().copied().collect();
-        let mut users_added: Vec<&UserFullName> = vec![];
+        let users_fullnames_old: BTreeSet<&UserFullName> = users_old.keys().copied().collect();
+        let users_fullnames_new: BTreeSet<&UserFullName> = users_new.keys().copied().collect();
+        let mut users_added: BTreeSet<&UserFullName> = BTreeSet::new();
         for full_name in users_fullnames_old.difference(&users_fullnames_new) {
             changes.push(DirectoryChange::UserRemoved((*full_name).clone()));
         }
         for full_name in users_fullnames_new.difference(&users_fullnames_old) {
             changes.push(DirectoryChange::UserAdded((*full_name).clone()));
-            users_added.push(full_name);
+            users_added.insert(full_name);
         }
 
         // Users updated
@@ -162,6 +163,7 @@ impl Directory {
                         .collect();
                     (changes, BaseRefConfigStatus::Valid)
                 }
+                Err(err) if is_rate_limit_error(&err) || is_cancelled_error(&err) => return Err(err),
                 Err(_) => (vec![], BaseRefConfigStatus::Invalid),
             };
 

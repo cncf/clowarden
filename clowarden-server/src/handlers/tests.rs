@@ -11,7 +11,6 @@ use axum::{
 use deadpool_postgres::Config as Db;
 use futures::future;
 use hmac::digest::MacError;
-use octorust::types::ChecksCreateRequest;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use tower::ServiceExt;
@@ -19,9 +18,8 @@ use tower::ServiceExt;
 use clowarden_core::cfg::{GitHubApp, Legacy, Service, Services};
 
 use crate::{
-    cfg::{BasicAuth, HttpServer, Log, LogFormat},
+    cfg::{BasicAuth, DEFAULT_RECONCILE_FREQUENCY, HttpServer, Log, LogFormat},
     db::MockDB,
-    github::MockGH,
 };
 
 use super::*;
@@ -62,151 +60,247 @@ const WEBHOOK_SECRET: &str = "webhook-secret";
 const WEBHOOK_SECRET_FALLBACK: &str = "webhook-secret-fallback";
 
 #[tokio::test]
-async fn test_create_no_config_changes_check_failure() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_create_check_run()
-        .times(1)
-        .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
-
-    // Run the workflow
-    let result = create_no_config_changes_check(Arc::new(gh), &sample_org(), HEAD_SHA).await;
-
-    // Check error is propagated
-    assert_eq!(result.unwrap_err().to_string(), ERROR);
-}
-
-#[tokio::test]
-async fn test_create_no_config_changes_check_success() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_create_check_run()
-        .withf(|ctx, body| {
-            ctx.inst_id == INSTALLATION_ID
-                && ctx.owner == ORG
-                && ctx.repo == REPO
-                && body.conclusion == Some(ChecksCreateRequestConclusion::Success)
-                && body.head_sha == HEAD_SHA
-                && body.name == "CLOWarden"
-                && body.output.as_ref().is_some_and(|output| {
-                    output.summary == NO_CONFIG_CHANGES_MSG && output.title == NO_CONFIG_CHANGES_MSG
-                })
-                && body.status == Some(JobStatus::Completed)
-        })
-        .times(1)
-        .returning(|_, _| Box::pin(future::ready(Ok(()))));
-
-    // Run the workflow
-    let result = create_no_config_changes_check(Arc::new(gh), &sample_org(), HEAD_SHA).await;
-
-    // Check check run was created
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
 async fn test_event_accepts_fallback_secret_signature() {
-    // Setup configuration and GitHub expectations
+    // Setup configuration
     let mut cfg = sample_config();
     cfg.server.github_app.webhook_secret_fallback = Some(WEBHOOK_SECRET_FALLBACK.to_string());
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["config.yaml"]);
-    expect_check_run(&mut gh, is_in_progress_check, Ok(()));
 
     // Run the request
     let body = serde_json::to_vec(&opened_event()).unwrap();
     let request = webhook_request("pull_request", body, WEBHOOK_SECRET_FALLBACK);
-    let (response, jobs) = send_request(&cfg, idle_db(), gh, request).await;
+    let (response, triaged) = send_request(&cfg, idle_db(), request).await;
 
-    // Check the event was processed
+    // Check the event was accepted and enqueued for triage
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(matches!(jobs.as_slice(), [Job::Validate(_)]));
-}
-
-#[tokio::test]
-async fn test_event_closed_and_merged_config_change_enqueues_reconcile() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["config.yaml"]);
-    gh.expect_create_check_run().never();
-
-    // Run the request
-    let request = pull_request_webhook_request(&merged_event());
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-    // Check a reconcile job with the pull request details was queued
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged.len(), 1);
     assert_eq!(
-        jobs,
-        vec![Job::Reconcile(ReconcileInput {
-            org: sample_org(),
-            pr_number: Some(PR_NUMBER),
-            pr_created_by: Some(PR_CREATED_BY.to_string()),
-            pr_merged_by: Some(PR_MERGED_BY.to_string()),
-            pr_merged_at: Some(OffsetDateTime::from_unix_timestamp(PR_MERGED_AT_TIMESTAMP).unwrap()),
-        })]
+        unwrap_pr_triage(&triaged[0]).action,
+        PullRequestEventAction::Opened
     );
 }
 
 #[tokio::test]
-async fn test_event_closed_and_merged_without_config_change_does_nothing() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["docs/README.md"]);
-    gh.expect_create_check_run().never();
+async fn test_event_check_run_rerequested_enqueues_triage() {
+    let payload = json!({
+        "action": "rerequested",
+        "check_run": {
+            "name": CHECK_RUN_NAME,
+            "head_sha": HEAD_SHA,
+            "pull_requests": [
+                {
+                    "number": PR_NUMBER,
+                    "base": { "ref": BASE_REF, "sha": "base-sha" },
+                    "head": { "ref": "feature", "sha": HEAD_SHA }
+                }
+            ]
+        },
+        "organization": opened_event()["organization"],
+        "repository": opened_event()["repository"]
+    });
+    let request = webhook_request("check_run", serde_json::to_vec(&payload).unwrap(), WEBHOOK_SECRET);
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
-    // Run the request
-    let request = pull_request_webhook_request(&merged_event());
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-    // Check no job was queued
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(jobs, vec![]);
+    assert_eq!(triaged.len(), 1);
+    let TriageInput::CheckRunRerequested(input) = &triaged[0] else {
+        panic!("expected CheckRunRerequested triage input");
+    };
+    assert_eq!(input.org, sample_org());
+    assert_eq!(input.head_sha, HEAD_SHA);
+    assert_eq!(input.pr_numbers, vec![PR_NUMBER]);
+
+    // Non-CLOWarden check runs and other actions are ignored
+    let mut other_check = payload.clone();
+    other_check["check_run"]["name"] = json!("OtherCI");
+    let (_, other_triaged) = send_request(
+        &sample_config(),
+        idle_db(),
+        webhook_request(
+            "check_run",
+            serde_json::to_vec(&other_check).unwrap(),
+            WEBHOOK_SECRET,
+        ),
+    )
+    .await;
+    assert_eq!(other_triaged, vec![]);
 }
 
 #[tokio::test]
-async fn test_event_closed_unmerged_config_change_does_nothing() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["config.yaml"]);
-    gh.expect_create_check_run().never();
+async fn test_event_check_suite_rerequested_enqueues_triage() {
+    let payload = json!({
+        "action": "rerequested",
+        "check_suite": {
+            "head_sha": HEAD_SHA,
+            "pull_requests": [
+                {
+                    "number": PR_NUMBER,
+                    "base": { "ref": BASE_REF, "sha": "base-sha" },
+                    "head": { "ref": "feature", "sha": HEAD_SHA }
+                }
+            ]
+        },
+        "organization": opened_event()["organization"],
+        "repository": opened_event()["repository"]
+    });
+    let request = webhook_request(
+        "check_suite",
+        serde_json::to_vec(&payload).unwrap(),
+        WEBHOOK_SECRET,
+    );
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged.len(), 1);
+    let TriageInput::CheckRunRerequested(input) = &triaged[0] else {
+        panic!("expected CheckRunRerequested triage input");
+    };
+    assert_eq!(input.org, sample_org());
+    assert_eq!(input.head_sha, HEAD_SHA);
+    assert_eq!(input.pr_numbers, vec![PR_NUMBER]);
+}
+
+#[tokio::test]
+async fn test_event_closed_and_merged_enqueues_triage_with_merge_metadata() {
+    // Run the request
+    let request = pull_request_webhook_request(&merged_event());
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
+
+    // Check triage input captured the merge metadata
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged.len(), 1);
+    let pr = unwrap_pr_triage(&triaged[0]);
+    assert_eq!(pr.action, PullRequestEventAction::Closed);
+    assert_eq!(pr.org, sample_org());
+    assert_eq!(pr.pr_number, PR_NUMBER);
+    assert_eq!(pr.pr_created_by.as_deref(), Some(PR_CREATED_BY));
+    assert_eq!(pr.pr_merged_by.as_deref(), Some(PR_MERGED_BY));
+    assert_eq!(
+        pr.pr_merged_at,
+        Some(OffsetDateTime::from_unix_timestamp(PR_MERGED_AT_TIMESTAMP).unwrap())
+    );
+}
+
+#[tokio::test]
+async fn test_event_closed_unmerged_is_ignored_without_queueing() {
     // Setup event for a pull request closed without merging
     let mut event = opened_event();
     event["action"] = json!("closed");
 
     // Run the request
     let request = pull_request_webhook_request(&event);
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
-    // Check no job was queued
+    // Check no triage work was queued
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(jobs, vec![]);
+    assert_eq!(triaged, vec![]);
 }
 
 #[tokio::test]
-async fn test_event_config_change_check_failure_still_enqueues_validate() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["config.yaml"]);
-    expect_check_run(&mut gh, is_in_progress_check, Err(ERROR));
-
-    // Run the request
-    let request = pull_request_webhook_request(&opened_event());
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-    // Check the validation job was queued anyway
+async fn test_event_edited_base_change_enqueues_triage_and_ignores_non_base_or_closed_edits() {
+    // Open PR retargeted to the configured base branch must be validated
+    let mut base_changed = opened_event();
+    base_changed["action"] = json!("edited");
+    base_changed["changes"] = json!({
+        "base": {
+            "ref": { "from": "develop" },
+            "sha": { "from": "0000000000000000000000000000000000000000" }
+        }
+    });
+    let (response, triaged) = send_request(
+        &sample_config(),
+        idle_db(),
+        pull_request_webhook_request(&base_changed),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(matches!(jobs.as_slice(), [Job::Validate(_)]));
+    assert_eq!(triaged.len(), 1);
+    assert_eq!(
+        unwrap_pr_triage(&triaged[0]).action,
+        PullRequestEventAction::Edited
+    );
+
+    // Title-only edit on an open PR must be ignored
+    let mut title_only = opened_event();
+    title_only["action"] = json!("edited");
+    title_only["changes"] = json!({ "title": { "from": "Old title" } });
+    let (response, triaged) = send_request(
+        &sample_config(),
+        idle_db(),
+        pull_request_webhook_request(&title_only),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged, vec![]);
+
+    // Base edit on a closed PR must be ignored
+    let mut closed_edit = base_changed;
+    closed_edit["pull_request"]["state"] = json!("closed");
+    let (response, triaged) = send_request(
+        &sample_config(),
+        idle_db(),
+        pull_request_webhook_request(&closed_edit),
+    )
+    .await;
+    // Check base edit on a closed PR was ignored
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged, vec![]);
 }
 
 #[tokio::test]
-async fn test_event_config_change_enqueues_validate_with_in_progress_check() {
-    for action in ["opened", "synchronize"] {
-        // Setup GitHub expectations
-        let mut gh = MockGH::new();
-        expect_pr_files(&mut gh, &["docs/README.md", "config.yaml"]);
-        expect_check_run(&mut gh, is_in_progress_check, Ok(()));
+async fn test_event_edited_retarget_to_previously_seen_sha_with_newer_timestamp_enqueues_triage() {
+    // Setup router with shared LatestPrHeads tracking A -> B on the managed branch
+    let (triage_tx, mut triage_rx) = mpsc::channel(16);
+    let latest_pr_heads = LatestPrHeads::new();
+    let router = setup_router(
+        &sample_config(),
+        Arc::new(idle_db()),
+        latest_pr_heads.clone(),
+        triage_tx,
+    )
+    .unwrap();
 
+    let first = opened_event();
+    let mut second = opened_event();
+    second["action"] = json!("synchronize");
+    second["before"] = json!(HEAD_SHA);
+    second["pull_request"]["head"]["sha"] = json!("newer-sha-b");
+    second["pull_request"]["updated_at"] = json!("2019-05-15T15:25:00Z");
+
+    // Retargeted back to managed branch at previously seen HEAD_SHA with strictly newer timestamp
+    let mut retargeted = opened_event();
+    retargeted["action"] = json!("edited");
+    retargeted["changes"] = json!({ "base": { "ref": { "from": "develop" } } });
+    retargeted["pull_request"]["updated_at"] = json!("2019-05-15T15:30:00Z");
+
+    // Deliver opened (A), synchronize (B), then edited back to managed branch at A
+    assert_eq!(
+        router.clone().oneshot(pull_request_webhook_request(&first)).await.unwrap().status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        router.clone().oneshot(pull_request_webhook_request(&second)).await.unwrap().status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        router.oneshot(pull_request_webhook_request(&retargeted)).await.unwrap().status(),
+        StatusCode::OK
+    );
+
+    // Check all three deliveries were queued and HEAD_SHA is now current
+    assert!(!latest_pr_heads.is_superseded(ORG, PR_NUMBER, HEAD_SHA));
+    let _ = triage_rx.try_recv().unwrap();
+    let _ = triage_rx.try_recv().unwrap();
+    let third = triage_rx.try_recv().unwrap();
+    assert_eq!(unwrap_pr_triage(&third).action, PullRequestEventAction::Edited);
+    assert_eq!(unwrap_pr_triage(&third).pr_head_sha, HEAD_SHA);
+}
+
+#[tokio::test]
+async fn test_event_enqueues_fork_pr_triage_for_opened_and_synchronize() {
+    for (action, expected_action) in [
+        ("opened", PullRequestEventAction::Opened),
+        ("synchronize", PullRequestEventAction::Synchronize),
+    ] {
         // Setup event for a pull request created from a fork
         let mut event = opened_event();
         event["action"] = json!(action);
@@ -216,23 +310,55 @@ async fn test_event_config_change_enqueues_validate_with_in_progress_check() {
 
         // Run the request
         let request = pull_request_webhook_request(&event);
-        let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
+        let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
-        // Check a validate job with the pull request details was queued
+        // Check triage input was queued with fork coordinates and head SHA
         assert_eq!(response.status(), StatusCode::OK, "{action}");
-        assert_eq!(
-            jobs,
-            vec![Job::Validate(ValidateInput {
-                org: sample_org(),
-                pr_number: PR_NUMBER,
-                pr_head_owner: Some("forker".to_string()),
-                pr_head_repo: Some("forked-repo".to_string()),
-                pr_head_ref: "feature".to_string(),
-                pr_head_sha: HEAD_SHA.to_string(),
-            })],
-            "{action}"
-        );
+        assert_eq!(triaged.len(), 1, "{action}");
+        let pr = unwrap_pr_triage(&triaged[0]);
+        assert_eq!(pr.action, expected_action, "{action}");
+        assert_eq!(pr.org, sample_org(), "{action}");
+        assert_eq!(pr.pr_number, PR_NUMBER, "{action}");
+        assert_eq!(pr.pr_head_owner.as_deref(), Some("forker"), "{action}");
+        assert_eq!(pr.pr_head_repo.as_deref(), Some("forked-repo"), "{action}");
+        assert_eq!(pr.pr_head_ref, "feature", "{action}");
+        assert_eq!(pr.pr_head_sha, HEAD_SHA, "{action}");
     }
+}
+
+#[tokio::test]
+async fn test_event_redelivered_older_pr_webhook_does_not_overwrite_newer_head() {
+    let (triage_tx, mut triage_rx) = mpsc::channel(16);
+    let latest_pr_heads = LatestPrHeads::new();
+    let router = setup_router(
+        &sample_config(),
+        Arc::new(idle_db()),
+        latest_pr_heads.clone(),
+        triage_tx,
+    )
+    .unwrap();
+
+    // Newer synchronize delivery (head B, later updated_at) arrives first
+    let mut newer = opened_event();
+    newer["action"] = json!("synchronize");
+    newer["before"] = json!(HEAD_SHA);
+    newer["pull_request"]["head"]["sha"] = json!("newer-sha-b");
+    newer["pull_request"]["updated_at"] = json!("2019-05-15T15:25:00Z");
+
+    // Older opened delivery (head A, earlier updated_at) is redelivered afterward
+    let older = opened_event();
+
+    let resp_new = router.clone().oneshot(pull_request_webhook_request(&newer)).await.unwrap();
+    let resp_old = router.oneshot(pull_request_webhook_request(&older)).await.unwrap();
+    assert_eq!(resp_new.status(), StatusCode::OK);
+    assert_eq!(resp_old.status(), StatusCode::OK);
+
+    // Head B remains current (not superseded), head A is superseded and not queued
+    assert!(!latest_pr_heads.is_superseded(ORG, PR_NUMBER, "newer-sha-b"));
+    assert!(latest_pr_heads.is_superseded(ORG, PR_NUMBER, HEAD_SHA));
+    let queued = triage_rx.try_recv().unwrap();
+    assert_eq!(unwrap_pr_triage(&queued).pr_head_sha, "newer-sha-b");
+    assert!(triage_rx.try_recv().is_err());
 }
 
 #[tokio::test]
@@ -264,11 +390,11 @@ async fn test_event_ignores_non_target_pull_requests() {
 
         // Run the request
         let request = pull_request_webhook_request(&event);
-        let (response, jobs) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the event was ignored
         assert_eq!(response.status(), StatusCode::OK, "{name}");
-        assert_eq!(jobs, vec![], "{name}");
+        assert_eq!(triaged, vec![], "{name}");
     }
 }
 
@@ -276,68 +402,11 @@ async fn test_event_ignores_non_target_pull_requests() {
 async fn test_event_ignores_unsupported_event() {
     // Run the request
     let request = webhook_request("ping", b"{}".to_vec(), WEBHOOK_SECRET);
-    let (response, jobs) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the event was ignored
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(jobs, vec![]);
-}
-
-#[tokio::test]
-async fn test_event_list_files_failure_reports_nothing() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    gh.expect_list_pr_files()
-        .withf(|ctx, pr_number| ctx.inst_id == INSTALLATION_ID && *pr_number == PR_NUMBER)
-        .times(1)
-        .returning(|_, _| Box::pin(future::ready(Err(format_err!(ERROR)))));
-    gh.expect_create_check_run().never();
-
-    // Run the request
-    let request = pull_request_webhook_request(&opened_event());
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-    // Check no check run was posted on the pull request not inspected
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(jobs, vec![]);
-}
-
-#[tokio::test]
-async fn test_event_no_config_change_check_failure_returns_ok_without_job() {
-    // Setup GitHub expectations
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["docs/README.md"]);
-    expect_check_run(&mut gh, is_no_config_changes_check, Err(ERROR));
-
-    // Run the request
-    let request = pull_request_webhook_request(&opened_event());
-    let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-    // Check the failure did not affect the response
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(jobs, vec![]);
-}
-
-#[tokio::test]
-async fn test_event_no_config_change_reports_success_check_without_job() {
-    for action in ["opened", "synchronize"] {
-        // Setup GitHub expectations
-        let mut gh = MockGH::new();
-        expect_pr_files(&mut gh, &["docs/README.md"]);
-        expect_check_run(&mut gh, is_no_config_changes_check, Ok(()));
-
-        // Setup event
-        let mut event = opened_event();
-        event["action"] = json!(action);
-
-        // Run the request
-        let request = pull_request_webhook_request(&event);
-        let (response, jobs) = send_request(&sample_config(), idle_db(), gh, request).await;
-
-        // Check no job was queued
-        assert_eq!(response.status(), StatusCode::OK, "{action}");
-        assert_eq!(jobs, vec![], "{action}");
-    }
+    assert_eq!(triaged, vec![]);
 }
 
 #[tokio::test]
@@ -347,24 +416,24 @@ async fn test_event_rejects_invalid_signature_before_side_effects() {
     let request = webhook_request("pull_request", body, "wrong-secret");
 
     // Run the request
-    let (response, jobs) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the request was rejected without side effects
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body_text(response).await, "no valid signature found");
-    assert_eq!(jobs, vec![]);
+    assert_eq!(triaged, vec![]);
 }
 
 #[tokio::test]
 async fn test_event_rejects_malformed_body() {
     // Run the request
     let request = webhook_request("pull_request", b"not json".to_vec(), WEBHOOK_SECRET);
-    let (response, jobs) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the request was rejected
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(body_text(response).await.starts_with("invalid body: "));
-    assert_eq!(jobs, vec![]);
+    assert_eq!(triaged, vec![]);
 }
 
 #[tokio::test]
@@ -379,12 +448,57 @@ async fn test_event_rejects_missing_event_header() {
         .unwrap();
 
     // Run the request
-    let (response, jobs) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, triaged) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the request was rejected
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body_text(response).await, "event header missing");
-    assert_eq!(jobs, vec![]);
+    assert_eq!(triaged, vec![]);
+}
+
+#[tokio::test]
+async fn test_event_reopened_enqueues_triage() {
+    // Setup event for a reopened pull request
+    let mut reopened = opened_event();
+    reopened["action"] = json!("reopened");
+
+    // Run the request
+    let (response, triaged) = send_request(
+        &sample_config(),
+        idle_db(),
+        pull_request_webhook_request(&reopened),
+    )
+    .await;
+
+    // Check the reopened event was enqueued for validation triage
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(triaged.len(), 1);
+    assert_eq!(
+        unwrap_pr_triage(&triaged[0]).action,
+        PullRequestEventAction::Reopened
+    );
+}
+
+#[tokio::test]
+async fn test_event_returns_service_unavailable_when_triage_queue_is_full() {
+    // Setup router with a capacity-1 triage queue already full
+    let (triage_tx, _triage_rx) = mpsc::channel(1);
+    let router = setup_router(
+        &sample_config(),
+        Arc::new(idle_db()),
+        LatestPrHeads::new(),
+        triage_tx,
+    )
+    .unwrap();
+    let first = pull_request_webhook_request(&opened_event());
+    let second = pull_request_webhook_request(&opened_event());
+
+    // First delivery fills the queue; second receives 503 backpressure
+    let first_resp = router.clone().oneshot(first).await.unwrap();
+    let second_resp = router.oneshot(second).await.unwrap();
+
+    assert_eq!(first_resp.status(), StatusCode::OK);
+    assert_eq!(second_resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[test]
@@ -461,7 +575,7 @@ async fn test_list_organizations_returns_empty_list_without_organizations() {
 
     // Run the request
     let request = get_request("/audit/api/organizations");
-    let (response, _) = send_request(&cfg, idle_db(), idle_gh(), request).await;
+    let (response, _) = send_request(&cfg, idle_db(), request).await;
 
     // Check an empty list was returned
     assert_eq!(response.status(), StatusCode::OK);
@@ -472,107 +586,13 @@ async fn test_list_organizations_returns_empty_list_without_organizations() {
 async fn test_list_organizations_returns_names_as_json() {
     // Run the request
     let request = get_request("/audit/api/organizations");
-    let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the response
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(cache_control(&response), Some("max-age=300"));
     assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
     assert_eq!(body_text(response).await, format!(r#"["{ORG}"]"#));
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_legacy_file_changed() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_list_pr_files()
-        .withf(|ctx, pr_number| {
-            ctx.inst_id == INSTALLATION_ID && ctx.owner == ORG && ctx.repo == REPO && *pr_number == PR_NUMBER
-        })
-        .times(1)
-        .returning(|_, _| {
-            Box::pin(future::ready(Ok(vec![
-                "docs/README.md".to_string(),
-                "config.yaml".to_string(),
-            ])))
-        });
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &sample_org(), REPO, BASE_REF, PR_NUMBER).await;
-
-    // Check configuration update was detected
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::Changed);
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_legacy_file_not_changed() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_list_pr_files()
-        .times(1)
-        .returning(|_, _| Box::pin(future::ready(Ok(vec!["docs/README.md".to_string()]))));
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &sample_org(), REPO, BASE_REF, PR_NUMBER).await;
-
-    // Check configuration update was not detected
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::Unchanged);
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_own_guard_rejects_wrong_base_ref() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_list_pr_files().never();
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &sample_org(), REPO, "feature", PR_NUMBER).await;
-
-    // Check pull request was treated as a non-target
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_own_guard_rejects_wrong_repository() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    gh.expect_list_pr_files().never();
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &sample_org(), "other", BASE_REF, PR_NUMBER).await;
-
-    // Check pull request was treated as a non-target
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::NotTarget);
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_people_file_changed() {
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["people.yaml"]);
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &sample_org(), REPO, BASE_REF, PR_NUMBER).await;
-
-    // Check configuration update was detected
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::Changed);
-}
-
-#[tokio::test]
-async fn test_pr_updates_config_people_file_ignored_without_people_path() {
-    // Setup organization without people file
-    let mut org = sample_org();
-    org.legacy.cncf_people_path = None;
-
-    // Setup GitHub mock
-    let mut gh = MockGH::new();
-    expect_pr_files(&mut gh, &["people.yaml"]);
-
-    // Run the workflow
-    let result = pr_updates_config(Arc::new(gh), &org, REPO, BASE_REF, PR_NUMBER).await;
-
-    // Check configuration update was not detected
-    assert_eq!(result.unwrap(), PullRequestConfigChanges::Unchanged);
 }
 
 #[tokio::test]
@@ -586,7 +606,7 @@ async fn test_search_changes_accepts_pagination_limits() {
 
     // Run the request
     let request = get_request("/audit/api/changes/search?limit=100&offset=2147483647");
-    let (response, _) = send_request(&sample_config(), db, idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), db, request).await;
 
     // Check the search was accepted
     assert_eq!(response.status(), StatusCode::OK);
@@ -602,7 +622,7 @@ async fn test_search_changes_database_failure_returns_internal_error() {
 
     // Run the request
     let request = get_request("/audit/api/changes/search");
-    let (response, _) = send_request(&sample_config(), db, idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), db, request).await;
 
     // Check the error details are not exposed
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -642,7 +662,7 @@ async fn test_search_changes_parses_web_query_and_returns_results() {
          &organization=org1&ts_query_web=hello&service[0]=github&kind[0]=repository-added\
          &kind[1]=team-added&pr_number[0]=12&pr_merged_by[0]=user1",
     );
-    let (response, _) = send_request(&sample_config(), db, idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), db, request).await;
 
     // Check the response
     assert_eq!(response.status(), StatusCode::OK);
@@ -665,7 +685,7 @@ async fn test_search_changes_rejects_invalid_query_before_searching() {
     for query in queries {
         // Run the request
         let request = get_request(&format!("/audit/api/changes/search?{query}"));
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the request was rejected with a useful message
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
@@ -690,7 +710,7 @@ async fn test_search_changes_rejects_pagination_out_of_range_before_searching() 
     for (query, expected_message) in cases {
         // Run the request
         let request = get_request(&format!("/audit/api/changes/search?{query}"));
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the request was rejected with a useful message
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
@@ -709,7 +729,7 @@ async fn test_search_changes_uses_default_input_without_query() {
 
     // Run the request
     let request = get_request("/audit/api/changes/search");
-    let (response, _) = send_request(&sample_config(), db, idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), db, request).await;
 
     // Check the response
     assert_eq!(response.status(), StatusCode::OK);
@@ -730,7 +750,7 @@ async fn test_setup_router_basic_auth_accepts_valid_credentials() {
         let mut request = get_request(route);
         let authorization = basic_authorization(BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD);
         request.headers_mut().insert(AUTHORIZATION, authorization);
-        let (response, _) = send_request(&basic_auth_config(true), db, idle_gh(), request).await;
+        let (response, _) = send_request(&basic_auth_config(true), db, request).await;
 
         // Check access was granted
         assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -746,7 +766,7 @@ async fn test_setup_router_basic_auth_disabled_leaves_audit_open() {
     for cfg in [cfg_disabled, cfg_not_set] {
         // Run the request
         let request = get_request("/audit/api/organizations");
-        let (response, _) = send_request(&cfg, idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&cfg, idle_db(), request).await;
 
         // Check access was granted
         assert_eq!(response.status(), StatusCode::OK);
@@ -760,9 +780,9 @@ async fn test_setup_router_basic_auth_leaves_other_routes_open() {
 
     // Run the requests
     let health_check_request = get_request("/health-check");
-    let (health_check_response, _) = send_request(&cfg, idle_db(), idle_gh(), health_check_request).await;
+    let (health_check_response, _) = send_request(&cfg, idle_db(), health_check_request).await;
     let webhook_request = webhook_request("ping", b"{}".to_vec(), WEBHOOK_SECRET);
-    let (webhook_response, _) = send_request(&cfg, idle_db(), idle_gh(), webhook_request).await;
+    let (webhook_response, _) = send_request(&cfg, idle_db(), webhook_request).await;
 
     // Check credentials were not required
     assert_eq!(health_check_response.status(), StatusCode::OK);
@@ -774,7 +794,7 @@ async fn test_setup_router_basic_auth_rejects_missing_credentials() {
     for route in PROTECTED_ROUTES {
         // Run the request
         let request = get_request(route);
-        let (response, _) = send_request(&basic_auth_config(true), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&basic_auth_config(true), idle_db(), request).await;
 
         // Check access was denied
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{route}");
@@ -790,7 +810,7 @@ async fn test_setup_router_basic_auth_rejects_wrong_credentials() {
         let mut request = get_request(route);
         let authorization = basic_authorization(BASIC_AUTH_USERNAME, "wrong-password");
         request.headers_mut().insert(AUTHORIZATION, authorization);
-        let (response, _) = send_request(&basic_auth_config(true), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&basic_auth_config(true), idle_db(), request).await;
 
         // Check access was denied
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{route}");
@@ -802,7 +822,7 @@ async fn test_setup_router_basic_auth_rejects_wrong_credentials() {
 async fn test_setup_router_redirects_audit_to_trailing_slash() {
     // Run the request
     let request = get_request("/audit");
-    let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the redirection
     assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
@@ -813,7 +833,7 @@ async fn test_setup_router_redirects_audit_to_trailing_slash() {
 async fn test_setup_router_rejects_get_on_webhook_route() {
     // Run the request
     let request = get_request("/webhook/github");
-    let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+    let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
     // Check the method is not allowed
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
@@ -824,7 +844,7 @@ async fn test_setup_router_serves_audit_index_with_short_cache() {
     for route in ["/audit/", "/audit/some/route"] {
         // Run the request
         let request = get_request(route);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the audit index was returned
         assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -842,7 +862,7 @@ async fn test_setup_router_serves_root_index_without_cache_header() {
     for route in ["/", "/some/route"] {
         // Run the request
         let request = get_request(route);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the root index was returned
         assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -863,7 +883,7 @@ async fn test_setup_router_serves_static_files_with_long_cache() {
     for (route, expected_body) in cases {
         // Run the request
         let request = get_request(route);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the file was returned
         assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -877,7 +897,7 @@ async fn test_setup_router_static_file_not_found_is_not_cached() {
     for route in ["/audit/static/missing.js", "/static/missing.js"] {
         // Run the request
         let request = get_request(route);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the response does not carry the static files cache header
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{route}");
@@ -890,13 +910,13 @@ async fn test_setup_router_static_file_not_modified_keeps_long_cache() {
     for route in ["/audit/static/app.js", "/static/audit/app.js"] {
         // Get the file's last modification date
         let request = get_request(route);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
         let last_modified = response.headers()[LAST_MODIFIED].clone();
 
         // Run the conditional request
         let mut request = get_request(route);
         request.headers_mut().insert(IF_MODIFIED_SINCE, last_modified);
-        let (response, _) = send_request(&sample_config(), idle_db(), idle_gh(), request).await;
+        let (response, _) = send_request(&sample_config(), idle_db(), request).await;
 
         // Check the cached file can continue to be used
         assert_eq!(response.status(), StatusCode::NOT_MODIFIED, "{route}");
@@ -1036,32 +1056,6 @@ fn cache_control(response: &Response<Body>) -> Option<&str> {
     response.headers().get(CACHE_CONTROL).map(|value| value.to_str().unwrap())
 }
 
-/// Sets up the expectation of a single check run for the organization under
-/// test that satisfies the predicate provided.
-fn expect_check_run(
-    gh: &mut MockGH,
-    predicate: fn(&ChecksCreateRequest) -> bool,
-    result: Result<(), &'static str>,
-) {
-    gh.expect_create_check_run()
-        .withf(move |ctx, body| {
-            ctx.inst_id == INSTALLATION_ID && ctx.owner == ORG && ctx.repo == REPO && predicate(body)
-        })
-        .times(1)
-        .returning(move |_, _| Box::pin(future::ready(result.map_err(|err| format_err!(err)))));
-}
-
-/// Sets up the expectation of a single request for the files in the pull
-/// request under test.
-fn expect_pr_files(gh: &mut MockGH, files: &'static [&'static str]) {
-    gh.expect_list_pr_files()
-        .withf(|ctx, pr_number| {
-            ctx.inst_id == INSTALLATION_ID && ctx.owner == ORG && ctx.repo == REPO && *pr_number == PR_NUMBER
-        })
-        .times(1)
-        .returning(|_, _| Box::pin(future::ready(Ok(files.iter().map(ToString::to_string).collect()))));
-}
-
 /// Returns a GET request for the uri provided.
 fn get_request(uri: &str) -> Request<Body> {
     Request::builder().uri(uri).body(Body::empty()).unwrap()
@@ -1070,34 +1064,10 @@ fn get_request(uri: &str) -> Request<Body> {
 /// Returns a database mock that does not expect any call.
 fn idle_db() -> MockDB {
     let mut db = MockDB::new();
+    db.expect_get_reconciliation_schedule_state().never();
     db.expect_register_reconciliation().never();
     db.expect_search_changes().never();
     db
-}
-
-/// Returns a GitHub mock that does not expect any call.
-fn idle_gh() -> MockGH {
-    let mut gh = MockGH::new();
-    gh.expect_create_check_run().never();
-    gh.expect_list_pr_files().never();
-    gh.expect_post_comment().never();
-    gh
-}
-
-/// Checks if the request provided describes the in-progress validation check.
-fn is_in_progress_check(body: &ChecksCreateRequest) -> bool {
-    body.conclusion.is_none()
-        && body.head_sha == HEAD_SHA
-        && body.name == "CLOWarden"
-        && body.status == Some(JobStatus::InProgress)
-}
-
-/// Checks if the request provided describes the no-configuration-changes check.
-fn is_no_config_changes_check(body: &ChecksCreateRequest) -> bool {
-    body.conclusion == Some(ChecksCreateRequestConclusion::Success)
-        && body.head_sha == HEAD_SHA
-        && body.name == "CLOWarden"
-        && body.status == Some(JobStatus::Completed)
 }
 
 /// Returns the recorded event adjusted to represent a merged pull request.
@@ -1132,12 +1102,13 @@ fn sample_config() -> Config {
         },
         server: HttpServer {
             addr: "127.0.0.1:9000".to_string(),
-            static_path: STATIC_PATH.into(),
-            basic_auth: None,
             github_app: GitHubApp {
                 webhook_secret: WEBHOOK_SECRET.to_string(),
                 ..GitHubApp::default()
             },
+            reconcile_frequency: DEFAULT_RECONCILE_FREQUENCY,
+            static_path: STATIC_PATH.into(),
+            basic_auth: None,
         },
         services: Services {
             github: Service { enabled: true },
@@ -1163,27 +1134,34 @@ fn sample_org() -> Organization {
 }
 
 /// Sends the request provided to a router set up with the configuration and
-/// mocks provided, returning the response and the jobs queued.
+/// database mock provided, returning the response and any queued triage items.
 async fn send_request(
     cfg: &Config,
     db: MockDB,
-    gh: MockGH,
     request: Request<Body>,
-) -> (Response<Body>, Vec<Job>) {
+) -> (Response<Body>, Vec<TriageInput>) {
     // Setup router
-    let (jobs_tx, mut jobs_rx) = mpsc::unbounded_channel();
-    let router = setup_router(cfg, Arc::new(db), Arc::new(gh), jobs_tx).unwrap();
+    let (triage_tx, mut triage_rx) = mpsc::channel(16);
+    let router = setup_router(cfg, Arc::new(db), LatestPrHeads::new(), triage_tx).unwrap();
 
     // Run the request
     let response = router.oneshot(request).await.unwrap();
 
-    // Collect queued jobs
-    let mut jobs = vec![];
-    while let Ok(job) = jobs_rx.try_recv() {
-        jobs.push(job);
+    // Collect queued triage inputs
+    let mut triaged = vec![];
+    while let Ok(item) = triage_rx.try_recv() {
+        triaged.push(item);
     }
 
-    (response, jobs)
+    (response, triaged)
+}
+
+/// Extract a [`PullRequestTriageInput`] from a [`TriageInput`] in tests.
+fn unwrap_pr_triage(item: &TriageInput) -> &PullRequestTriageInput {
+    match item {
+        TriageInput::PullRequest(input) => input,
+        TriageInput::CheckRunRerequested(_) => panic!("expected PullRequest triage input"),
+    }
 }
 
 /// Returns the signature of the body provided using the secret given.

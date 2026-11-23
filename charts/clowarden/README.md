@@ -25,7 +25,9 @@ Organization:
 
 In addition to those permissions, it must also be subscribed to the following events:
 
-- *Pull Request*
+- *Check run*
+- *Check suite*
+- *Pull request*
 
 CLOWarden expects GitHub events to be sent to the `/webhook/github` endpoint. In the GitHub application, please enable `webhook` and set the target URL to your exposed endpoint (ie: <https://your-clowarden-deployment/webhook/github>). You will need to define a random secret for the webhook (you can use the following command to do it: `openssl rand -hex 32`). Please note your webhook secret, as well as the GitHub application ID and private key, as you'll need them in the next step when installing the chart.
 
