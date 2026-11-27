@@ -3,19 +3,16 @@
 //! configuration or the service, and validating and comparing them.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Write},
     sync::LazyLock,
 };
 
 use anyhow::{Context, Result, format_err};
-use futures::{
-    future,
-    stream::{self, StreamExt},
-};
 use octorust::types::{
-    OrgMembershipState, RepositoryInvitationPermissions, RepositoryPermissions, TeamMembershipRole,
-    TeamPermissions, TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
+    MinimalRepository, OrgMembershipState, RepositoryInvitation, RepositoryInvitationPermissions,
+    RepositoryPermissions, Team as OctorustTeam, TeamMembershipRole, TeamPermissions,
+    TeamsAddUpdateRepoPermissionsInOrgRequestPermission,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -51,6 +48,46 @@ pub type RepositoryName = String;
 /// Type alias to represent a repository invitation_id.
 pub type RepositoryInvitationId = i64;
 
+/// Actual service state plus repository invitations (active and expired)
+/// captured during the scan so reconciliation can reuse them without
+/// re-fetching.
+#[derive(Debug, Clone, Default)]
+pub struct ActualStateSnapshot {
+    /// Repository invitations (active and expired) keyed by repository name.
+    pub repository_invitations: HashMap<RepositoryName, Vec<RepositoryInvitation>>,
+    /// Normalized actual GitHub service state.
+    pub state: State,
+}
+
+/// Organization-level GitHub metadata shared across config loading,
+/// validation, and narrowed actual-state reads within a single job.
+#[derive(Debug, Clone, Default)]
+pub struct ServiceMetadata {
+    /// Organization administrators.
+    pub org_admins: Vec<UserName>,
+    /// Organization members.
+    pub org_members: Vec<UserName>,
+    /// Repositories currently present in the organization.
+    pub repositories: Vec<MinimalRepository>,
+}
+
+impl ServiceMetadata {
+    /// Load organization-level admins, members, and repositories once for a
+    /// job.
+    pub async fn load(svc: &DynSvc, ctx: &Ctx) -> Result<Self> {
+        // Fetch org admins, members, and repositories once for reuse
+        let org_admins = svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
+        let repositories = svc.list_repositories(ctx).await?;
+        let org_members = svc.list_org_members(ctx).await?.into_iter().map(|m| m.login).collect();
+
+        Ok(Self {
+            org_admins,
+            org_members,
+            repositories,
+        })
+    }
+}
+
 /// GitHub's service state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
@@ -59,240 +96,6 @@ pub struct State {
 }
 
 impl State {
-    /// Create a new State instance from the configuration reference provided.
-    pub async fn new_from_config(
-        gh: DynGH,
-        svc: DynSvc,
-        legacy: &Legacy,
-        ctx: &Ctx,
-        src: &Source,
-    ) -> Result<State> {
-        if legacy.enabled {
-            // We need to get some information from the service's actual state
-            // to deal with some service's particularities.
-            let org_admins: Vec<UserName> =
-                svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
-            let repositories_in_service = svc.list_repositories(ctx).await?;
-
-            // Helper function to check if a repository has been archived. We
-            // cannot add or remove collaborators or teams to an archived repo,
-            // so we will just ignore them and no changes will be applied to
-            // them while they stay archived.
-            let is_repository_archived = |repo_name: &RepositoryName| {
-                for repo in &repositories_in_service {
-                    if &repo.name == repo_name {
-                        return repo.archived;
-                    }
-                }
-                false
-            };
-
-            // Prepare directory
-            let mut directory = Directory::new_from_config(gh.clone(), legacy, src).await?;
-
-            // Team's members that are org admins are considered maintainers by
-            // GitHub, so we do the same with the members defined in the config
-            for team in &mut directory.teams {
-                let mut org_admins_members = vec![];
-                for user_name in &team.members.clone() {
-                    if org_admins.contains(user_name) {
-                        org_admins_members.push(user_name.clone());
-                        team.maintainers.push(user_name.clone());
-                    }
-                }
-                team.members.retain(|user_name| !org_admins_members.contains(user_name));
-            }
-
-            // Prepare repositories
-            let repositories = legacy::sheriff::Cfg::get(gh, src, &legacy.sheriff_permissions_path)
-                .await
-                .context("invalid github service configuration")?
-                .repositories
-                .into_iter()
-                .filter(|r| !is_repository_archived(&r.name))
-                .map(|mut r| {
-                    // Set default visibility when none is provided
-                    if r.visibility.is_none() {
-                        r.visibility = Some(Visibility::default());
-                    }
-
-                    // Remove organization admins from collaborators list
-                    if let Some(collaborators) = r.collaborators {
-                        r.collaborators = Some(
-                            collaborators
-                                .into_iter()
-                                .filter(|(user_name, _)| !org_admins.contains(user_name))
-                                .collect(),
-                        );
-                    }
-
-                    r
-                })
-                .collect();
-
-            let state = State {
-                directory,
-                repositories,
-            };
-            state.validate(svc, ctx).await?;
-
-            return Ok(state);
-        }
-        Err(format_err!(
-            "only configuration in legacy format supported at the moment"
-        ))
-    }
-
-    /// Create a new State instance from the service's actual state.
-    #[allow(clippy::too_many_lines)]
-    pub async fn new_from_service(svc: DynSvc, ctx: &Ctx) -> Result<State> {
-        let mut state = State::default();
-
-        // Teams (enterprise teams are left out without inspecting them)
-        let (enterprise_teams, teams): (Vec<_>, Vec<_>) =
-            svc.list_teams(ctx).await?.into_iter().partition(|team| is_enterprise_team(&team.slug));
-        if !enterprise_teams.is_empty() {
-            let slugs: Vec<&str> = enterprise_teams.iter().map(|team| team.slug.as_str()).collect();
-            debug!(teams = ?slugs, "ignoring enterprise teams");
-        }
-        for team in stream::iter(teams)
-            .map(|team| async {
-                // Get maintainers and members (including pending invitations)
-                let mut maintainers: Vec<UserName> = svc
-                    .list_team_maintainers(ctx, &team.slug)
-                    .await
-                    .context(format!("error listing team {} maintainers", team.slug))?
-                    .into_iter()
-                    .map(|u| u.login)
-                    .collect();
-                let mut members: Vec<UserName> = svc
-                    .list_team_members(ctx, &team.slug)
-                    .await
-                    .context(format!("error listing team {} members", team.slug))?
-                    .into_iter()
-                    .map(|u| u.login)
-                    .collect();
-                for invitation in svc
-                    .list_team_invitations(ctx, &team.slug)
-                    .await
-                    .context(format!("error listing team {} invitations", team.slug))?
-                {
-                    // Skip invitations without login (e.g. email invitations)
-                    if invitation.login.is_empty() {
-                        continue;
-                    }
-
-                    let membership = svc
-                        .get_team_membership(ctx, &team.slug, &invitation.login)
-                        .await
-                        .context(format!(
-                            "error getting team {} membership of {}",
-                            team.slug, invitation.login
-                        ))?;
-                    if membership.state == OrgMembershipState::Pending {
-                        match membership.role {
-                            TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
-                            TeamMembershipRole::Member => members.push(invitation.login),
-                            TeamMembershipRole::FallthroughString => {}
-                        }
-                    }
-                }
-                maintainers.sort();
-                members.sort();
-
-                // Setup team from info collected
-                Ok(Team {
-                    name: team.slug,
-                    display_name: Some(team.name),
-                    maintainers,
-                    members,
-                    ..Default::default()
-                })
-            })
-            .buffer_unordered(1)
-            .collect::<Vec<Result<Team>>>()
-            .await
-        {
-            match team {
-                Ok(team) => state.directory.teams.push(team),
-                Err(err) => return Err(err.context("error getting team info")),
-            }
-        }
-        state.directory.teams.sort_by(|a, b| a.name.cmp(&b.name));
-
-        // Repositories
-        let org_admins: Vec<UserName> =
-            svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
-        for repo in stream::iter(svc.list_repositories(ctx).await?)
-            .filter(|repo| future::ready(!repo.archived && !GHSA_TEMP_FORK.is_match(&repo.name)))
-            .map(|repo| async {
-                // Get collaborators (including pending invitations and excluding org admins)
-                let mut collaborators: BTreeMap<UserName, Role> = svc
-                    .list_repository_collaborators(ctx, &repo.name)
-                    .await
-                    .context(format!("error listing repository {} collaborators", repo.name))?
-                    .into_iter()
-                    .filter(|c| !org_admins.contains(&c.login))
-                    .map(|c| (c.login, c.permissions.into()))
-                    .collect();
-                for invitation in svc
-                    .list_repository_invitations(ctx, &repo.name)
-                    .await
-                    .context(format!("error listing repository {} invitations", repo.name))?
-                {
-                    if let Some(invitee) = invitation.invitee {
-                        collaborators.insert(invitee.login, invitation.permissions.into());
-                    }
-                }
-                let collaborators = if collaborators.is_empty() {
-                    None
-                } else {
-                    Some(collaborators)
-                };
-
-                // Get teams (access granted to enterprise teams is left out)
-                let mut teams: BTreeMap<TeamName, Role> = BTreeMap::new();
-                for team in svc
-                    .list_repository_teams(ctx, &repo.name)
-                    .await
-                    .context(format!("error listing repository {} teams", repo.name))?
-                {
-                    let role: Role = team.permissions.into();
-                    if is_enterprise_team(&team.slug) {
-                        debug!(
-                            repo = repo.name,
-                            team = team.slug,
-                            %role,
-                            "ignoring enterprise team access to repository"
-                        );
-                        continue;
-                    }
-                    teams.insert(team.slug, role);
-                }
-                let teams = if teams.is_empty() { None } else { Some(teams) };
-
-                // Setup repository from info collected
-                Ok(Repository {
-                    name: repo.name,
-                    collaborators,
-                    teams,
-                    visibility: Some(repo.visibility.into()),
-                })
-            })
-            .buffer_unordered(1)
-            .collect::<Vec<Result<Repository>>>()
-            .await
-        {
-            match repo {
-                Ok(repo) => state.repositories.push(repo),
-                Err(err) => return Err(err.context("error getting repository info")),
-            }
-        }
-        state.repositories.sort_by(|a, b| a.name.cmp(&b.name));
-
-        Ok(state)
-    }
-
     /// Returns the changes detected between this state instance and the new
     /// one provided.
     #[must_use]
@@ -316,8 +119,503 @@ impl State {
         }
     }
 
+    /// Create a new State instance from the configuration reference provided.
+    pub async fn new_from_config(
+        gh: DynGH,
+        svc: DynSvc,
+        legacy: &Legacy,
+        ctx: &Ctx,
+        src: &Source,
+    ) -> Result<State> {
+        if !legacy.enabled {
+            return Err(format_err!(
+                "only configuration in legacy format supported at the moment"
+            ));
+        }
+
+        // Load organization admins and repositories needed to normalize config
+        let org_admins: Vec<UserName> =
+            svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect();
+        let repositories = svc.list_repositories(ctx).await?;
+
+        // Build state from configuration files before fetching org members
+        let state = Self::build_from_config(gh, legacy, &org_admins, &repositories, src).await?;
+
+        // Validate state against organization membership
+        let org_members: Vec<UserName> =
+            svc.list_org_members(ctx).await?.into_iter().map(|m| m.login).collect();
+        state.validate(&org_members)?;
+
+        Ok(state)
+    }
+
+    /// Create a new State instance from the configuration reference using
+    /// pre-fetched [`ServiceMetadata`].
+    pub async fn new_from_config_with_metadata(
+        gh: DynGH,
+        legacy: &Legacy,
+        metadata: &ServiceMetadata,
+        src: &Source,
+    ) -> Result<State> {
+        if !legacy.enabled {
+            return Err(format_err!(
+                "only configuration in legacy format supported at the moment"
+            ));
+        }
+
+        let state =
+            Self::build_from_config(gh, legacy, &metadata.org_admins, &metadata.repositories, src).await?;
+        state.validate(&metadata.org_members)?;
+        Ok(state)
+    }
+
+    /// Create a new State instance from the service's full actual state.
+    pub async fn new_from_service(svc: DynSvc, ctx: &Ctx) -> Result<State> {
+        let snapshot = Self::load_from_service(&svc, ctx, None, None, None).await?;
+        Ok(snapshot.state)
+    }
+
+    /// Create a narrowed actual-state snapshot using pre-fetched metadata and
+    /// `desired` so unmanaged repositories and teams scheduled for deletion do
+    /// not incur unnecessary per-resource API calls.
+    pub async fn new_from_service_for_desired(
+        svc: DynSvc,
+        ctx: &Ctx,
+        desired: &State,
+        metadata: &ServiceMetadata,
+    ) -> Result<ActualStateSnapshot> {
+        let desired_teams: HashSet<&str> = desired.directory.teams.iter().map(|t| t.name.as_str()).collect();
+        let desired_repos: HashSet<&str> = desired.repositories.iter().map(|r| r.name.as_str()).collect();
+
+        Self::load_from_service(
+            &svc,
+            ctx,
+            Some(metadata),
+            Some(&desired_teams),
+            Some(&desired_repos),
+        )
+        .await
+    }
+
+    /// Build a normalized [`State`] from configuration files without running
+    /// membership validation yet.
+    async fn build_from_config(
+        gh: DynGH,
+        legacy: &Legacy,
+        org_admins: &[UserName],
+        repositories_in_service: &[MinimalRepository],
+        src: &Source,
+    ) -> Result<State> {
+        // Helper closure to check if a repository has been archived
+        let is_repository_archived = |repo_name: &RepositoryName| {
+            for repo in repositories_in_service {
+                if &repo.name == repo_name {
+                    return repo.archived;
+                }
+            }
+            false
+        };
+
+        // Prepare directory
+        let mut directory = Directory::new_from_config(gh.clone(), legacy, src).await?;
+
+        // Team's members that are org admins are considered maintainers by
+        // GitHub, so we do the same with the members defined in the config
+        for team in &mut directory.teams {
+            let mut org_admins_members = vec![];
+            for user_name in &team.members.clone() {
+                if org_admins.contains(user_name) {
+                    org_admins_members.push(user_name.clone());
+                    team.maintainers.push(user_name.clone());
+                }
+            }
+            team.members.retain(|user_name| !org_admins_members.contains(user_name));
+        }
+
+        // Prepare repositories, excluding archived repos and GHSA temp forks
+        let repositories = legacy::sheriff::Cfg::get(gh, src, &legacy.sheriff_permissions_path)
+            .await
+            .context("invalid github service configuration")?
+            .repositories
+            .into_iter()
+            .filter(|r| !is_repository_archived(&r.name) && !GHSA_TEMP_FORK.is_match(&r.name))
+            .map(|mut r| {
+                // Set default visibility when none is provided
+                if r.visibility.is_none() {
+                    r.visibility = Some(Visibility::default());
+                }
+
+                // Remove organization admins from collaborators list
+                if let Some(collaborators) = r.collaborators {
+                    r.collaborators = Some(
+                        collaborators
+                            .into_iter()
+                            .filter(|(user_name, _)| !org_admins.contains(user_name))
+                            .collect(),
+                    );
+                }
+
+                r
+            })
+            .collect();
+
+        Ok(State {
+            directory,
+            repositories,
+        })
+    }
+
+    /// Record team, collaborator, and visibility changes for an existing
+    /// repository present in both states.
+    fn diff_repository(old: &Repository, new: &Repository, changes: &mut Vec<RepositoryChange>) {
+        // Diff repository teams
+        Self::diff_role_map(
+            old.teams.as_ref(),
+            new.teams.as_ref(),
+            |team_name| RepositoryChange::TeamRemoved(new.name.clone(), team_name),
+            |team_name, role| RepositoryChange::TeamAdded(new.name.clone(), team_name, role),
+            |team_name, role| RepositoryChange::TeamRoleUpdated(new.name.clone(), team_name, role),
+            changes,
+        );
+
+        // Diff repository collaborators
+        Self::diff_role_map(
+            old.collaborators.as_ref(),
+            new.collaborators.as_ref(),
+            |user_name| RepositoryChange::CollaboratorRemoved(new.name.clone(), user_name),
+            |user_name, role| RepositoryChange::CollaboratorAdded(new.name.clone(), user_name, role),
+            |user_name, role| RepositoryChange::CollaboratorRoleUpdated(new.name.clone(), user_name, role),
+            changes,
+        );
+
+        // Diff repository visibility
+        if new.visibility != old.visibility {
+            let visibility_new = new.visibility.clone().unwrap_or_default();
+            changes.push(RepositoryChange::VisibilityUpdated(
+                new.name.clone(),
+                visibility_new,
+            ));
+        }
+    }
+
+    /// Compute removed, added, and role-updated changes between two optional
+    /// role maps.
+    fn diff_role_map<K, FRemoved, FAdded, FUpdated>(
+        old: Option<&BTreeMap<K, Role>>,
+        new: Option<&BTreeMap<K, Role>>,
+        on_removed: FRemoved,
+        on_added: FAdded,
+        on_updated: FUpdated,
+        changes: &mut Vec<RepositoryChange>,
+    ) where
+        K: Ord + Clone,
+        FRemoved: Fn(K) -> RepositoryChange,
+        FAdded: Fn(K, Role) -> RepositoryChange,
+        FUpdated: Fn(K, Role) -> RepositoryChange,
+    {
+        let empty = BTreeMap::new();
+        let old = old.unwrap_or(&empty);
+        let new = new.unwrap_or(&empty);
+
+        // Record entries removed from the new map
+        for key in old.keys() {
+            if !new.contains_key(key) {
+                changes.push(on_removed(key.clone()));
+            }
+        }
+
+        // Record entries added to the new map
+        for (key, role_new) in new {
+            if !old.contains_key(key) {
+                changes.push(on_added(key.clone(), role_new.clone()));
+            }
+        }
+
+        // Record entries whose role changed between the two maps
+        for (key, role_new) in new {
+            if let Some(role_old) = old.get(key)
+                && role_new != role_old
+            {
+                changes.push(on_updated(key.clone(), role_new.clone()));
+            }
+        }
+    }
+
+    /// Load actual state from GitHub, optionally scoping per-team and per-repo
+    /// detail calls to `desired_teams` and `desired_repos`.
+    async fn load_from_service(
+        svc: &DynSvc,
+        ctx: &Ctx,
+        metadata: Option<&ServiceMetadata>,
+        desired_teams: Option<&HashSet<&str>>,
+        desired_repos: Option<&HashSet<&str>>,
+    ) -> Result<ActualStateSnapshot> {
+        // Load organization teams fail-fast before querying repository state
+        let teams = Self::load_teams_from_service(svc, ctx, desired_teams).await?;
+
+        // Reuse pre-fetched admins/repos when available, otherwise fetch after
+        // teams succeed so team read errors fail fast
+        let (owned_admins, owned_repos);
+        let (org_admins, repositories_in_service) = if let Some(metadata) = metadata {
+            (&metadata.org_admins[..], &metadata.repositories[..])
+        } else {
+            owned_admins = svc.list_org_admins(ctx).await?.into_iter().map(|a| a.login).collect::<Vec<_>>();
+            owned_repos = svc.list_repositories(ctx).await?;
+            (&owned_admins[..], &owned_repos[..])
+        };
+
+        // Load repositories and capture their invitations for reconciliation
+        let (repositories, repository_invitations) = Self::load_repositories_from_service(
+            svc,
+            ctx,
+            org_admins,
+            repositories_in_service,
+            desired_repos,
+        )
+        .await?;
+
+        Ok(ActualStateSnapshot {
+            repository_invitations,
+            state: State {
+                directory: Directory {
+                    teams,
+                    ..Default::default()
+                },
+                repositories,
+            },
+        })
+    }
+
+    /// Load managed repositories and their invitations (active and expired)
+    /// from GitHub, skipping archived repos, GHSA temp forks, and unmanaged
+    /// repositories.
+    async fn load_repositories_from_service(
+        svc: &DynSvc,
+        ctx: &Ctx,
+        org_admins: &[UserName],
+        repositories_in_service: &[MinimalRepository],
+        desired_repos: Option<&HashSet<&str>>,
+    ) -> Result<(
+        Vec<Repository>,
+        HashMap<RepositoryName, Vec<RepositoryInvitation>>,
+    )> {
+        let mut repositories = vec![];
+        let mut repository_invitations = HashMap::new();
+
+        // Inspect repositories fail-fast, skipping archived, GHSA temp forks,
+        // and unmanaged repositories when scoped to desired state
+        for repo in repositories_in_service {
+            if repo.archived || GHSA_TEMP_FORK.is_match(&repo.name) {
+                continue;
+            }
+            if desired_repos.is_some_and(|desired| !desired.contains(repo.name.as_str())) {
+                continue;
+            }
+
+            // Load repository details and keep invitations for reconciliation
+            let (repository, invitations) =
+                Self::load_repository_from_service(svc, ctx, org_admins, repo).await?;
+            repository_invitations.insert(repo.name.clone(), invitations);
+            repositories.push(repository);
+        }
+        repositories.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok((repositories, repository_invitations))
+    }
+
+    /// Load collaborators, invitations, and team permissions for a single
+    /// repository from GitHub.
+    async fn load_repository_from_service(
+        svc: &DynSvc,
+        ctx: &Ctx,
+        org_admins: &[UserName],
+        repo: &MinimalRepository,
+    ) -> Result<(Repository, Vec<RepositoryInvitation>)> {
+        // Get collaborators (including pending invitations and excluding org admins)
+        let mut collaborators: BTreeMap<UserName, Role> = svc
+            .list_repository_collaborators(ctx, &repo.name)
+            .await
+            .with_context(|| format!("error listing repository {} collaborators", repo.name))
+            .context("error getting repository info")?
+            .into_iter()
+            .filter(|c| !org_admins.contains(&c.login))
+            .map(|c| (c.login, c.permissions.into()))
+            .collect();
+        // Load repository invitations, keeping all of them in the snapshot
+        // while excluding expired ones from active collaborator access so
+        // reconciliation can delete and recreate them
+        let invitations = svc
+            .list_repository_invitations(ctx, &repo.name)
+            .await
+            .with_context(|| format!("error listing repository {} invitations", repo.name))
+            .context("error getting repository info")?;
+        for invitation in &invitations {
+            if !invitation.expired
+                && let Some(invitee) = &invitation.invitee
+            {
+                collaborators.insert(invitee.login.clone(), invitation.permissions.clone().into());
+            }
+        }
+        let collaborators = if collaborators.is_empty() {
+            None
+        } else {
+            Some(collaborators)
+        };
+
+        // Get teams (access granted to enterprise teams is left out)
+        let mut teams: BTreeMap<TeamName, Role> = BTreeMap::new();
+        for team in svc
+            .list_repository_teams(ctx, &repo.name)
+            .await
+            .with_context(|| format!("error listing repository {} teams", repo.name))
+            .context("error getting repository info")?
+        {
+            let role: Role = team.permissions.into();
+            if is_enterprise_team(&team.slug) {
+                debug!(
+                    repo = repo.name,
+                    team = team.slug,
+                    %role,
+                    "ignoring enterprise team access to repository"
+                );
+                continue;
+            }
+            teams.insert(team.slug, role);
+        }
+        let teams = if teams.is_empty() { None } else { Some(teams) };
+
+        let repository = Repository {
+            name: repo.name.clone(),
+            collaborators,
+            teams,
+            visibility: Some(repo.visibility.clone().into()),
+        };
+        Ok((repository, invitations))
+    }
+
+    /// Load maintainers, members, and pending invitations for a single team
+    /// from GitHub.
+    async fn load_team_from_service(svc: &DynSvc, ctx: &Ctx, team: OctorustTeam) -> Result<Team> {
+        // Load confirmed maintainers and members
+        let mut maintainers: Vec<UserName> = svc
+            .list_team_maintainers(ctx, &team.slug)
+            .await
+            .with_context(|| format!("error listing team {} maintainers", team.slug))
+            .context("error getting team info")?
+            .into_iter()
+            .map(|u| u.login)
+            .collect();
+        let mut members: Vec<UserName> = svc
+            .list_team_members(ctx, &team.slug)
+            .await
+            .with_context(|| format!("error listing team {} members", team.slug))
+            .context("error getting team info")?
+            .into_iter()
+            .map(|u| u.login)
+            .collect();
+
+        // Include pending invitations under their target role
+        for invitation in svc
+            .list_team_invitations(ctx, &team.slug)
+            .await
+            .with_context(|| format!("error listing team {} invitations", team.slug))
+            .context("error getting team info")?
+        {
+            // Skip invitations without login (e.g. email invitations)
+            if invitation.login.is_empty() {
+                continue;
+            }
+
+            let membership = svc
+                .get_team_membership(ctx, &team.slug, &invitation.login)
+                .await
+                .with_context(|| {
+                    format!(
+                        "error getting team {} membership of {}",
+                        team.slug, invitation.login
+                    )
+                })
+                .context("error getting team info")?;
+            if membership.state == OrgMembershipState::Pending {
+                match membership.role {
+                    TeamMembershipRole::Maintainer => maintainers.push(invitation.login),
+                    TeamMembershipRole::Member => members.push(invitation.login),
+                    TeamMembershipRole::FallthroughString => {}
+                }
+            }
+        }
+        maintainers.sort();
+        members.sort();
+
+        Ok(Team {
+            name: team.slug,
+            display_name: Some(team.name),
+            maintainers,
+            members,
+            ..Default::default()
+        })
+    }
+
+    /// Load organization teams from GitHub, filtering out enterprise teams and
+    /// skipping detail calls for teams absent from `desired_teams`.
+    async fn load_teams_from_service(
+        svc: &DynSvc,
+        ctx: &Ctx,
+        desired_teams: Option<&HashSet<&str>>,
+    ) -> Result<Vec<Team>> {
+        // Partition enterprise teams out before inspecting organization teams
+        let (enterprise_teams, org_teams): (Vec<_>, Vec<_>) =
+            svc.list_teams(ctx).await?.into_iter().partition(|team| is_enterprise_team(&team.slug));
+        if !enterprise_teams.is_empty() {
+            let slugs: Vec<&str> = enterprise_teams.iter().map(|team| team.slug.as_str()).collect();
+            debug!(teams = ?slugs, "ignoring enterprise teams");
+        }
+
+        // Inspect organization teams fail-fast, skipping detail calls for
+        // teams absent from desired state (Directory::diff only needs slug)
+        let mut teams = Vec::with_capacity(org_teams.len());
+        for team in org_teams {
+            if desired_teams.is_some_and(|desired| !desired.contains(team.slug.as_str())) {
+                teams.push(Team {
+                    name: team.slug,
+                    display_name: Some(team.name),
+                    ..Default::default()
+                });
+                continue;
+            }
+
+            teams.push(Self::load_team_from_service(svc, ctx, team).await?);
+        }
+        teams.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(teams)
+    }
+
+    /// Returns the changes detected between two lists of repositories.
+    fn repositories_diff(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
+        let mut changes = vec![];
+        let repos_old: BTreeMap<&RepositoryName, &Repository> = old.iter().map(|r| (&r.name, r)).collect();
+        let repos_new: BTreeMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
+
+        // Record repositories added in the new state
+        for (repo_name, repo_new) in &repos_new {
+            if !repos_old.contains_key(repo_name) {
+                changes.push(RepositoryChange::RepositoryAdded((*repo_new).clone()));
+            }
+        }
+
+        // Diff teams, collaborators, and visibility on existing repositories
+        for (repo_name, repo_new) in &repos_new {
+            if let Some(repo_old) = repos_old.get(repo_name) {
+                Self::diff_repository(repo_old, repo_new, &mut changes);
+            }
+        }
+
+        changes
+    }
+
     /// Validate state.
-    async fn validate(&self, svc: DynSvc, ctx: &Ctx) -> Result<()> {
+    fn validate(&self, org_members: &[UserName]) -> Result<()> {
         let mut merr = MultiError::new(Some("invalid github service configuration".to_string()));
 
         // Helper closure to get the highest role from a team membership for a
@@ -344,8 +642,6 @@ impl State {
         };
 
         // Check teams' maintainers are members of the organization
-        let org_members: Vec<UserName> =
-            svc.list_org_members(ctx).await?.into_iter().map(|m| m.login).collect();
         for team in &self.directory.teams {
             for user_name in &team.maintainers {
                 if !org_members.contains(user_name) {
@@ -401,138 +697,6 @@ impl State {
             return Err(merr.into());
         }
         Ok(())
-    }
-
-    /// Returns the changes detected between two lists of repositories.
-    #[allow(clippy::too_many_lines)]
-    fn repositories_diff(old: &[Repository], new: &[Repository]) -> Vec<RepositoryChange> {
-        let mut changes = vec![];
-
-        // Repositories
-        let repos_old: BTreeMap<&RepositoryName, &Repository> = old.iter().map(|r| (&r.name, r)).collect();
-        let repos_new: BTreeMap<&RepositoryName, &Repository> = new.iter().map(|r| (&r.name, r)).collect();
-
-        // Helper closures to get the team's/collaborator's role
-        let team_role = |collection: &BTreeMap<&RepositoryName, &Repository>,
-                         repo_name: &RepositoryName,
-                         team_name: &TeamName| {
-            if let Some(teams) = collection[repo_name].teams.as_ref() {
-                return teams.get(team_name).cloned().unwrap_or_default();
-            }
-            Role::default()
-        };
-        let user_role = |collection: &BTreeMap<&RepositoryName, &Repository>,
-                         repo_name: &RepositoryName,
-                         user_name: &UserName| {
-            if let Some(collaborators) = collection[repo_name].collaborators.as_ref() {
-                return collaborators.get(user_name).cloned().unwrap_or_default();
-            }
-            Role::default()
-        };
-
-        // Repositories added
-        let repos_names_old: HashSet<&RepositoryName> = repos_old.keys().copied().collect();
-        let repos_names_new: HashSet<&RepositoryName> = repos_new.keys().copied().collect();
-        for repo_name in repos_names_new.difference(&repos_names_old) {
-            changes.push(RepositoryChange::RepositoryAdded(repos_new[*repo_name].clone()));
-        }
-
-        // Repositories teams and collaborators added/removed
-        for repo_name in repos_new.keys() {
-            if !repos_names_old.contains(repo_name) {
-                // New repo, no need to track additional changes on it
-                continue;
-            }
-
-            // Teams
-            let mut teams_old = HashSet::new();
-            if let Some(teams) = &repos_old[repo_name].teams {
-                teams_old = teams.keys().collect();
-            }
-            let mut teams_new = HashSet::new();
-            if let Some(teams) = &repos_new[repo_name].teams {
-                teams_new = teams.keys().collect();
-            }
-            for team_name in teams_old.difference(&teams_new) {
-                changes.push(RepositoryChange::TeamRemoved(
-                    (*repo_name).clone(),
-                    (*team_name).clone(),
-                ));
-            }
-            for team_name in teams_new.difference(&teams_old) {
-                changes.push(RepositoryChange::TeamAdded(
-                    (*repo_name).clone(),
-                    (*team_name).clone(),
-                    team_role(&repos_new, repo_name, team_name),
-                ));
-            }
-            for team_name in &teams_new {
-                if !teams_old.contains(team_name) {
-                    // New team, no need to track additional changes on it
-                    continue;
-                }
-                let role_new = team_role(&repos_new, repo_name, team_name);
-                let role_old = team_role(&repos_old, repo_name, team_name);
-                if role_new != role_old {
-                    changes.push(RepositoryChange::TeamRoleUpdated(
-                        (*repo_name).clone(),
-                        (*team_name).clone(),
-                        role_new,
-                    ));
-                }
-            }
-
-            // Collaborators
-            let mut collaborators_old = HashSet::new();
-            if let Some(collaborators) = &repos_old[repo_name].collaborators {
-                collaborators_old = collaborators.keys().collect();
-            }
-            let mut collaborators_new = HashSet::new();
-            if let Some(collaborators) = &repos_new[repo_name].collaborators {
-                collaborators_new = collaborators.keys().collect();
-            }
-            for user_name in collaborators_old.difference(&collaborators_new) {
-                changes.push(RepositoryChange::CollaboratorRemoved(
-                    (*repo_name).clone(),
-                    (*user_name).clone(),
-                ));
-            }
-            for user_name in collaborators_new.difference(&collaborators_old) {
-                changes.push(RepositoryChange::CollaboratorAdded(
-                    (*repo_name).clone(),
-                    (*user_name).clone(),
-                    user_role(&repos_new, repo_name, user_name),
-                ));
-            }
-            for user_name in &collaborators_new {
-                if !collaborators_old.contains(user_name) {
-                    // New collaborator, no need to track additional changes on it
-                    continue;
-                }
-                let role_new = user_role(&repos_new, repo_name, user_name);
-                let role_old = user_role(&repos_old, repo_name, user_name);
-                if role_new != role_old {
-                    changes.push(RepositoryChange::CollaboratorRoleUpdated(
-                        (*repo_name).clone(),
-                        (*user_name).clone(),
-                        role_new,
-                    ));
-                }
-            }
-
-            // Visibility
-            let visibility_new = &repos_new[repo_name].visibility;
-            let visibility_old = &repos_old[repo_name].visibility;
-            if visibility_new != visibility_old {
-                let visibility_new = visibility_new.clone().unwrap_or_default();
-                changes.push(RepositoryChange::VisibilityUpdated(
-                    (*repo_name).clone(),
-                    visibility_new,
-                ));
-            }
-        }
-
-        changes
     }
 }
 

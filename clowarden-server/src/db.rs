@@ -8,6 +8,7 @@ use deadpool_postgres::Pool;
 #[cfg(test)]
 use mockall::automock;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use tokio_postgres::types::Json;
 use uuid::Uuid;
 
@@ -19,6 +20,10 @@ use crate::jobs::ReconcileInput;
 #[async_trait]
 #[cfg_attr(test, automock)]
 pub(crate) trait DB {
+    /// Return the latest attempt and latest clean reconciliation timestamps
+    /// for each organization.
+    async fn get_reconciliation_schedule_state(&self) -> Result<HashMap<String, OrgReconciliationStatus>>;
+
     /// Register the reconciliation provided.
     async fn register_reconciliation(
         &self,
@@ -33,6 +38,17 @@ pub(crate) trait DB {
 
 /// Type alias to represent a DB trait object.
 pub(crate) type DynDB = Arc<dyn DB + Send + Sync>;
+
+/// Latest reconciliation timestamps tracked per organization for periodic
+/// sweep ordering and failure backoff.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct OrgReconciliationStatus {
+    /// Timestamp of the most recent reconciliation attempt (clean or failed).
+    pub last_attempt_at: Option<OffsetDateTime>,
+    /// Timestamp of the most recent clean reconciliation (no top-level error
+    /// and no failed changes).
+    pub last_clean_at: Option<OffsetDateTime>,
+}
 
 /// Type alias to represent a counter value.
 type Count = i64;
@@ -54,6 +70,49 @@ impl PgDB {
 
 #[async_trait]
 impl DB for PgDB {
+    /// [`DB::get_reconciliation_schedule_state`].
+    async fn get_reconciliation_schedule_state(&self) -> Result<HashMap<String, OrgReconciliationStatus>> {
+        let db = self.pool.get().await?;
+        let rows = db
+            .query(
+                "
+                select
+                    r.organization,
+                    max(r.completed_at) as last_attempt_at,
+                    max(r.completed_at) filter (
+                        where r.error is null
+                          and not exists (
+                              select 1
+                              from change c
+                              where c.reconciliation_id = r.reconciliation_id
+                                and c.error is not null
+                          )
+                    ) as last_clean_at
+                from reconciliation r
+                where r.organization is not null
+                group by r.organization
+                ",
+                &[],
+            )
+            .await?;
+
+        let mut statuses = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let org: String = row.get("organization");
+            let last_attempt_at: Option<OffsetDateTime> = row.get("last_attempt_at");
+            let last_clean_at: Option<OffsetDateTime> = row.get("last_clean_at");
+            statuses.insert(
+                org,
+                OrgReconciliationStatus {
+                    last_attempt_at,
+                    last_clean_at,
+                },
+            );
+        }
+
+        Ok(statuses)
+    }
+
     /// [DB::register_reconciliation]
     async fn register_reconciliation(
         &self,

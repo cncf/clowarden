@@ -164,8 +164,9 @@ pub(crate) fn expect_no_mutations(svc: &mut MockSvc) {
     svc.expect_update_repository_visibility().never();
 }
 
-/// Expect the reads made to build a state from the service.
-pub(crate) fn expect_service_load(svc: &mut MockSvc, state: &ServiceState) {
+/// Expect the reads made to build a narrowed actual state during
+/// reconciliation (reusing org admins and repositories already loaded).
+pub(crate) fn expect_narrowed_service_load(svc: &mut MockSvc, state: &ServiceState) {
     // Teams
     let teams: Vec<Team> = state.teams.iter().map(|team| sample_team(team.name, team.slug)).collect();
     svc.expect_list_teams()
@@ -176,12 +177,20 @@ pub(crate) fn expect_service_load(svc: &mut MockSvc, state: &ServiceState) {
         expect_team_load(svc, team);
     }
 
-    // Repositories
-    expect_org_admins(svc, state);
-    expect_repositories(svc, state);
+    // Repositories (already listed in ServiceMetadata::load)
     for repo in &state.repositories {
         expect_repository_load(svc, repo);
     }
+}
+
+/// Expect the reads made to build a state from the service.
+pub(crate) fn expect_service_load(svc: &mut MockSvc, state: &ServiceState) {
+    // Org admins and repositories
+    expect_org_admins(svc, state);
+    expect_repositories(svc, state);
+
+    // Teams and per-repository details
+    expect_narrowed_service_load(svc, state);
 }
 
 /// Return the messages of the errors aggregated in the error provided, sorted

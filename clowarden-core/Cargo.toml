@@ -11,21 +11,21 @@ anyhow = { workspace = true }
 as-any = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
-cached = { workspace = true }
 futures = { workspace = true }
 octorust = { workspace = true }
 pem = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
-reqwest-conditional-middleware = { workspace = true }
 reqwest-middleware = { workspace = true }
-reqwest-retry = { workspace = true }
 reqwest-tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+task-local-extensions = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

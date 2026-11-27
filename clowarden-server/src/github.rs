@@ -1,33 +1,35 @@
 //! This module defines an abstraction layer over the GitHub API.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 #[cfg(test)]
 use mockall::automock;
-use octorust::{
-    Client,
-    auth::JWTCredentials,
-    types::{
-        ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, DiffEntry, JobStatus,
-        OrganizationSimple, PullRequestData, PullsUpdateReviewRequest, Repository, SimpleUser,
-    },
+use octorust::types::{
+    ChecksCreateRequest, ChecksCreateRequestConclusion, ChecksCreateRequestOutput, DiffEntry, JobStatus,
+    OrganizationSimple, PullRequestData, PullRequestSimple, PullsUpdateReviewRequest, Repository, SimpleUser,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use time::OffsetDateTime;
+use tokio_util::sync::CancellationToken;
 
-use clowarden_core::cfg::{GitHubApp, Organization};
+use clowarden_core::{
+    cfg::Organization,
+    github::{ClientPool, RequestKind},
+};
 
 #[cfg(test)]
 mod tests;
 
 /// Name used for the check run in GitHub.
-const CHECK_RUN_NAME: &str = "CLOWarden";
+pub(crate) const CHECK_RUN_NAME: &str = "CLOWarden";
+
+/// Maximum number of files returned by GitHub's list pull request files
+/// endpoint before results are truncated.
+pub(crate) const MAX_PR_FILES: usize = 3_000;
 
 /// Trait that defines some operations a GH implementation must support.
 #[async_trait]
@@ -36,8 +38,15 @@ pub(crate) trait GH {
     /// Create a check run.
     async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()>;
 
-    /// List pull request files, including the previous name of renamed files.
-    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>>;
+    /// Fetch pull request metadata by number.
+    async fn get_pr(&self, ctx: &Ctx, pr_number: i64) -> Result<AssociatedPullRequest>;
+
+    /// List pull requests associated with a commit SHA.
+    async fn list_commit_prs(&self, ctx: &Ctx, commit_sha: &str) -> Result<Vec<AssociatedPullRequest>>;
+
+    /// List pull request files, including the previous name of renamed files
+    /// and whether the GitHub response reached its truncation limit.
+    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<PrFiles>;
 
     /// Post the comment provided in the repository's pull request given.
     async fn post_comment(&self, ctx: &Ctx, pr_number: i64, body: &str) -> Result<CommentId>;
@@ -52,69 +61,173 @@ type CommentId = i64;
 /// Type alias to represent a filename.
 type FileName = String;
 
+/// Compact pull request metadata needed to validate a re-requested check run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct AssociatedPullRequest {
+    /// Target base branch name.
+    pub base_ref: String,
+    /// Current head branch name.
+    pub head_ref: String,
+    /// Current head commit SHA.
+    pub head_sha: String,
+    /// Whether the pull request is currently open.
+    pub is_open: bool,
+    /// Pull request number.
+    pub number: i64,
+
+    /// Owner login of the head repository (differs for fork PRs).
+    pub head_owner: Option<String>,
+    /// Name of the head repository (differs for fork PRs).
+    pub head_repo: Option<String>,
+    /// Last updated timestamp of the pull request, when available.
+    pub updated_at: Option<OffsetDateTime>,
+}
+
+impl From<PullRequestData> for AssociatedPullRequest {
+    fn from(pr: PullRequestData) -> Self {
+        Self {
+            base_ref: pr.base.ref_,
+            head_ref: pr.head.ref_,
+            head_sha: pr.head.sha,
+            is_open: pr.state == octorust::types::State::Open,
+            number: pr.number,
+            head_owner: pr.head.repo.as_ref().map(|r| r.owner.login.clone()),
+            head_repo: pr.head.repo.map(|r| r.name),
+            updated_at: pr.updated_at.and_then(|dt| OffsetDateTime::from_unix_timestamp(dt.timestamp()).ok()),
+        }
+    }
+}
+
+impl From<PullRequestSimple> for AssociatedPullRequest {
+    fn from(pr: PullRequestSimple) -> Self {
+        Self {
+            base_ref: pr.base.ref_,
+            head_ref: pr.head.ref_,
+            head_sha: pr.head.sha,
+            is_open: pr.state.eq_ignore_ascii_case("open"),
+            number: pr.number,
+            head_owner: pr.head.repo.as_ref().and_then(|r| r.owner.as_ref()).map(|o| o.login.clone()),
+            head_repo: pr.head.repo.map(|r| r.name),
+            updated_at: pr.updated_at.and_then(|dt| OffsetDateTime::from_unix_timestamp(dt.timestamp()).ok()),
+        }
+    }
+}
+
+/// Files touched by a pull request and whether the listing may be truncated.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PrFiles {
+    /// File paths touched by the pull request, including previous names of
+    /// renamed files.
+    pub files: Vec<FileName>,
+    /// True when the response reached GitHub's 3,000-file cap.
+    pub is_truncated: bool,
+}
+
 /// GH implementation backed by the GitHub API.
 pub(crate) struct GHApi {
-    app_credentials: JWTCredentials,
-    clients: RwLock<HashMap<i64, Arc<Client>>>,
+    /// Shared GitHub API client pool and rate-limit governor.
+    pool: Arc<ClientPool>,
 }
 
 impl GHApi {
-    /// Create a new GHApi instance.
-    pub(crate) fn new(gh_app: &GitHubApp) -> Result<Self> {
-        // Setup GitHub app credentials
-        let private_key = pem::parse(&gh_app.private_key)?.contents().to_owned();
-        let app_credentials =
-            JWTCredentials::new(gh_app.app_id, private_key).context("error setting up credentials")?;
-
-        Ok(Self {
-            app_credentials,
-            clients: RwLock::new(HashMap::new()),
-        })
-    }
-
-    /// Get the GitHub API client for the installation id provided, reusing cached
-    /// instances when available and creating a new one otherwise.
-    fn get_client(&self, inst_id: i64) -> Result<Arc<Client>> {
-        if let Some(client) = self.clients.read().unwrap().get(&inst_id).cloned() {
-            return Ok(client);
-        }
-
-        let app_credentials = Some(self.app_credentials.clone());
-        let token: Option<String> = None;
-        let client = Arc::new(clowarden_core::github::setup_client(
-            Some(inst_id),
-            &app_credentials,
-            &token,
-        )?);
-        let mut clients = self.clients.write().unwrap();
-        let entry = clients.entry(inst_id).or_insert_with(|| client.clone());
-        Ok(entry.clone())
+    /// Create a new GHApi instance backed by the shared [`ClientPool`].
+    pub(crate) fn new(pool: Arc<ClientPool>) -> Self {
+        Self { pool }
     }
 }
 
 #[async_trait]
 impl GH for GHApi {
-    /// [GH::create_check_run]
+    /// [`GH::create_check_run`].
     async fn create_check_run(&self, ctx: &Ctx, body: &ChecksCreateRequest) -> Result<()> {
-        let client = self.get_client(ctx.inst_id)?;
-        _ = client.checks().create(&ctx.owner, &ctx.repo, body).await?;
+        self.pool
+            .execute(
+                Some(ctx.inst_id),
+                RequestKind::NonIdempotentWrite,
+                &ctx.cancel_token,
+                |client| {
+                    let body = body.clone();
+                    async move { client.checks().create(&ctx.owner, &ctx.repo, &body).await }
+                },
+            )
+            .await?;
         Ok(())
     }
 
-    /// [GH::list_pr_files]
-    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<Vec<FileName>> {
-        let client = self.get_client(ctx.inst_id)?;
-        let entries = client.pulls().list_all_files(&ctx.owner, &ctx.repo, pr_number).await?;
-        Ok(diff_entries_file_names(&entries))
+    /// [`GH::get_pr`].
+    async fn get_pr(&self, ctx: &Ctx, pr_number: i64) -> Result<AssociatedPullRequest> {
+        let pr = self
+            .pool
+            .execute(
+                Some(ctx.inst_id),
+                RequestKind::Read,
+                &ctx.cancel_token,
+                |client| async move { client.pulls().get(&ctx.owner, &ctx.repo, pr_number).await },
+            )
+            .await?;
+        Ok(pr.into())
     }
 
-    /// [GH::post_comment]
+    /// [`GH::list_commit_prs`].
+    async fn list_commit_prs(&self, ctx: &Ctx, commit_sha: &str) -> Result<Vec<AssociatedPullRequest>> {
+        let commit_sha = commit_sha.to_string();
+        let prs = self
+            .pool
+            .execute(
+                Some(ctx.inst_id),
+                RequestKind::Read,
+                &ctx.cancel_token,
+                |client| {
+                    let commit_sha = commit_sha.clone();
+                    async move {
+                        client
+                            .repos()
+                            .list_all_pull_requests_associated_with_commit(&ctx.owner, &ctx.repo, &commit_sha)
+                            .await
+                    }
+                },
+            )
+            .await?;
+        Ok(prs.into_iter().map(Into::into).collect())
+    }
+
+    /// [`GH::list_pr_files`].
+    async fn list_pr_files(&self, ctx: &Ctx, pr_number: i64) -> Result<PrFiles> {
+        let entries = self
+            .pool
+            .execute(
+                Some(ctx.inst_id),
+                RequestKind::Read,
+                &ctx.cancel_token,
+                |client| async move { client.pulls().list_all_files(&ctx.owner, &ctx.repo, pr_number).await },
+            )
+            .await?;
+        let is_truncated = entries.len() >= MAX_PR_FILES;
+        Ok(PrFiles {
+            files: diff_entries_file_names(&entries),
+            is_truncated,
+        })
+    }
+
+    /// [`GH::post_comment`].
     async fn post_comment(&self, ctx: &Ctx, pr_number: i64, body: &str) -> Result<CommentId> {
-        let body = &PullsUpdateReviewRequest {
+        let body = PullsUpdateReviewRequest {
             body: body.to_string(),
         };
-        let client = self.get_client(ctx.inst_id)?;
-        let comment = client.issues().create_comment(&ctx.owner, &ctx.repo, pr_number, body).await?;
+        let comment =
+            self.pool
+                .execute(
+                    Some(ctx.inst_id),
+                    RequestKind::NonIdempotentWrite,
+                    &ctx.cancel_token,
+                    |client| {
+                        let body = body.clone();
+                        async move {
+                            client.issues().create_comment(&ctx.owner, &ctx.repo, pr_number, &body).await
+                        }
+                    },
+                )
+                .await?;
         Ok(comment.id)
     }
 }
@@ -128,7 +241,9 @@ type EventPayload = [u8];
 /// Represents a GitHub webhook event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Event {
-    PullRequest(PullRequestEvent),
+    CheckRun(Box<CheckRunEvent>),
+    CheckSuite(Box<CheckSuiteEvent>),
+    PullRequest(Box<PullRequestEvent>),
 }
 
 impl TryFrom<(&EventHeader, &EventPayload)> for Event {
@@ -137,10 +252,20 @@ impl TryFrom<(&EventHeader, &EventPayload)> for Event {
     fn try_from((event_name, event_body): (&EventHeader, &EventPayload)) -> Result<Self, Self::Error> {
         match event_name {
             Some(event_name) => match event_name.as_bytes() {
+                b"check_run" => {
+                    let event: CheckRunEvent = serde_json::from_slice(event_body)
+                        .map_err(|err| EventError::InvalidBody(err.to_string()))?;
+                    Ok(Event::CheckRun(Box::new(event)))
+                }
+                b"check_suite" => {
+                    let event: CheckSuiteEvent = serde_json::from_slice(event_body)
+                        .map_err(|err| EventError::InvalidBody(err.to_string()))?;
+                    Ok(Event::CheckSuite(Box::new(event)))
+                }
                 b"pull_request" => {
                     let event: PullRequestEvent = serde_json::from_slice(event_body)
                         .map_err(|err| EventError::InvalidBody(err.to_string()))?;
-                    Ok(Event::PullRequest(event))
+                    Ok(Event::PullRequest(Box::new(event)))
                 }
                 _ => Err(EventError::UnsupportedEvent),
             },
@@ -160,15 +285,90 @@ pub(crate) enum EventError {
     InvalidBody(String),
 }
 
+/// Check run event payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckRunEvent {
+    pub action: CheckRunEventAction,
+    pub check_run: CheckRunPayload,
+    pub repository: Repository,
+
+    pub organization: Option<OrganizationSimple>,
+}
+
+/// Check run event action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CheckRunEventAction {
+    Rerequested,
+    #[serde(other)]
+    Other,
+}
+
+/// Minimal check run fields needed to handle `check_run.rerequested`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckRunPayload {
+    pub head_sha: String,
+    pub name: String,
+    #[serde(default)]
+    pub pull_requests: Vec<CheckRunPullRequest>,
+}
+
+/// Minimal pull request reference embedded in a `check_run` payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckRunPullRequest {
+    pub base: CheckRunPullRequestRef,
+    pub head: CheckRunPullRequestRef,
+    pub number: i64,
+}
+
+/// Minimal git ref embedded in a `check_run` pull request reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckRunPullRequestRef {
+    #[serde(rename = "ref")]
+    pub ref_: String,
+    pub sha: String,
+}
+
+/// Check suite event payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckSuiteEvent {
+    pub action: CheckRunEventAction,
+    pub check_suite: CheckSuitePayload,
+    pub repository: Repository,
+
+    pub organization: Option<OrganizationSimple>,
+}
+
+/// Minimal check suite fields needed to handle `check_suite.rerequested`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CheckSuitePayload {
+    pub head_sha: String,
+    #[serde(default)]
+    pub pull_requests: Vec<CheckRunPullRequest>,
+}
+
 /// Pull request event payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PullRequestEvent {
     pub action: PullRequestEventAction,
     pub number: i64,
-    pub organization: Option<OrganizationSimple>,
     pub pull_request: PullRequestData,
     pub repository: Repository,
     pub sender: SimpleUser,
+
+    #[serde(default)]
+    pub before: Option<String>,
+    #[serde(default)]
+    pub changes: Option<PullRequestEventChanges>,
+    pub organization: Option<OrganizationSimple>,
+}
+
+/// Fields changed in a `pull_request.edited` webhook payload.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PullRequestEventChanges {
+    /// Present when the pull request's target base branch was edited.
+    #[serde(default)]
+    pub base: Option<serde_json::Value>,
 }
 
 /// Pull request event action.
@@ -176,10 +376,22 @@ pub(crate) struct PullRequestEvent {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PullRequestEventAction {
     Closed,
+    Edited,
     Opened,
+    Reopened,
     Synchronize,
     #[serde(other)]
     Other,
+}
+
+impl PullRequestEventAction {
+    /// Return true if this pull request action triggers configuration validation.
+    pub(crate) fn is_validation_action(&self) -> bool {
+        matches!(
+            self,
+            Self::Edited | Self::Opened | Self::Reopened | Self::Synchronize
+        )
+    }
 }
 
 /// Helper function to create a new ChecksCreateRequest instance.
@@ -221,18 +433,33 @@ fn diff_entries_file_names(entries: &[DiffEntry]) -> Vec<FileName> {
 }
 
 /// Information about the target of a GitHub API request.
+#[derive(Clone, Default)]
 pub struct Ctx {
+    /// Cancellation token interrupting rate-limit waits before dispatch.
+    pub cancel_token: CancellationToken,
+    /// GitHub App installation identifier.
     pub inst_id: i64,
+    /// Repository owner login.
     pub owner: String,
+    /// Repository name.
     pub repo: String,
 }
 
-impl From<&Organization> for Ctx {
-    fn from(org: &Organization) -> Self {
-        Ctx {
+impl Ctx {
+    /// Create a context bound to `org` and `cancel_token`.
+    #[must_use]
+    pub fn from_org_with_cancel(org: &Organization, cancel_token: CancellationToken) -> Self {
+        Self {
+            cancel_token,
             inst_id: org.installation_id,
             owner: org.name.clone(),
             repo: org.repository.clone(),
         }
+    }
+}
+
+impl From<&Organization> for Ctx {
+    fn from(org: &Organization) -> Self {
+        Self::from_org_with_cancel(org, CancellationToken::new())
     }
 }

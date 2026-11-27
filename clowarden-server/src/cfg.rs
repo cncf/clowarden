@@ -12,6 +12,15 @@ use serde::{Deserialize, Serialize};
 
 use clowarden_core::cfg::{GitHubApp, Organization, Services};
 
+/// Default frequency of periodic full reconciliations per organization (in
+/// seconds).
+pub(crate) const DEFAULT_RECONCILE_FREQUENCY: u64 = 6 * 60 * 60; // 6 hours
+
+/// Maximum supported frequency of periodic full reconciliations per
+/// organization (in seconds). Caps values well within representable `Instant`
+/// deadlines across platforms.
+pub(crate) const MAX_RECONCILE_FREQUENCY: u64 = 365 * 24 * 60 * 60; // 1 year
+
 /// Server configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct Config {
@@ -19,6 +28,7 @@ pub(crate) struct Config {
     pub log: Log,
     pub server: HttpServer,
     pub services: Services,
+
     pub organizations: Option<Vec<Organization>>,
 }
 
@@ -29,6 +39,10 @@ impl Config {
         let cfg: Self = Figment::new()
             .merge(Serialized::default("log.format", "pretty"))
             .merge(Serialized::default("server.addr", "127.0.0.1:9000"))
+            .merge(Serialized::default(
+                "server.reconcileFrequency",
+                DEFAULT_RECONCILE_FREQUENCY,
+            ))
             .merge(Yaml::file(config_file))
             .merge(Env::prefixed("CLOWARDEN_").split("_").lowercase(false))
             .extract()?;
@@ -39,8 +53,8 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Validate the configuration. Empty webhook secrets are rejected as they
-    /// would allow anyone to forge valid webhook signatures.
+    /// Validate the configuration. Empty webhook secrets and out-of-range
+    /// reconcile frequencies are rejected.
     fn validate(&self) -> Result<()> {
         let github_app = &self.server.github_app;
         if github_app.webhook_secret.is_empty() {
@@ -48,6 +62,12 @@ impl Config {
         }
         if github_app.webhook_secret_fallback.as_ref().is_some_and(String::is_empty) {
             bail!("server.githubApp.webhookSecretFallback must not be empty");
+        }
+        if self.server.reconcile_frequency == 0 {
+            bail!("server.reconcileFrequency must be greater than 0");
+        }
+        if self.server.reconcile_frequency > MAX_RECONCILE_FREQUENCY {
+            bail!("server.reconcileFrequency must not exceed {MAX_RECONCILE_FREQUENCY} seconds");
         }
 
         Ok(())
@@ -73,9 +93,11 @@ pub(crate) enum LogFormat {
 #[serde(rename_all(deserialize = "camelCase"))]
 pub(crate) struct HttpServer {
     pub addr: String,
-    pub static_path: PathBuf,
-    pub basic_auth: Option<BasicAuth>,
     pub github_app: GitHubApp,
+    pub reconcile_frequency: u64,
+    pub static_path: PathBuf,
+
+    pub basic_auth: Option<BasicAuth>,
 }
 
 /// Basic authentication configuration.
@@ -146,6 +168,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_validate_accepts_max_reconcile_frequency() {
+        // Setup configuration at the maximum supported reconcile frequency
+        let mut cfg = sample_config(WEBHOOK_SECRET, None);
+        cfg.server.reconcile_frequency = MAX_RECONCILE_FREQUENCY;
+
+        // Check maximum frequency is accepted
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_excessive_reconcile_frequency() {
+        // Setup configuration above the maximum supported reconcile frequency
+        let mut cfg = sample_config(WEBHOOK_SECRET, None);
+        cfg.server.reconcile_frequency = u64::MAX;
+
+        // Check excessive frequency was rejected
+        assert_eq!(
+            cfg.validate().unwrap_err().to_string(),
+            format!("server.reconcileFrequency must not exceed {MAX_RECONCILE_FREQUENCY} seconds")
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_reconcile_frequency() {
+        // Setup configuration with a zero reconcile frequency
+        let mut cfg = sample_config(WEBHOOK_SECRET, None);
+        cfg.server.reconcile_frequency = 0;
+
+        // Check zero frequency was rejected
+        assert_eq!(
+            cfg.validate().unwrap_err().to_string(),
+            "server.reconcileFrequency must be greater than 0"
+        );
+    }
+
     // Helpers.
 
     /// Returns a configuration that uses the webhook secrets provided.
@@ -157,13 +215,14 @@ mod tests {
             },
             server: HttpServer {
                 addr: "127.0.0.1:9000".to_string(),
-                static_path: PathBuf::from("/tmp/static"),
-                basic_auth: None,
                 github_app: GitHubApp {
                     webhook_secret: webhook_secret.to_string(),
                     webhook_secret_fallback: webhook_secret_fallback.map(ToString::to_string),
                     ..GitHubApp::default()
                 },
+                reconcile_frequency: DEFAULT_RECONCILE_FREQUENCY,
+                static_path: PathBuf::from("/tmp/static"),
+                basic_auth: None,
             },
             services: Services {
                 github: Service { enabled: true },

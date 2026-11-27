@@ -166,6 +166,105 @@ fn test_diff_multiple_changes() {
 }
 
 #[test]
+fn test_diff_orders_team_and_user_changes_deterministically() {
+    // Setup directories with unsorted teams, maintainers, members, and users
+    let dir1 = Directory {
+        teams: vec![
+            Team {
+                name: "team-z".to_string(),
+                ..Default::default()
+            },
+            Team {
+                name: "team-a".to_string(),
+                ..Default::default()
+            },
+            Team {
+                name: "team-shared-b".to_string(),
+                maintainers: vec!["m-z".to_string(), "m-a".to_string()],
+                members: vec!["u-z".to_string(), "u-a".to_string()],
+                ..Default::default()
+            },
+            Team {
+                name: "team-shared-a".to_string(),
+                ..Default::default()
+            },
+        ],
+        users: vec![
+            User {
+                full_name: "User Z".to_string(),
+                ..Default::default()
+            },
+            User {
+                full_name: "User A".to_string(),
+                ..Default::default()
+            },
+        ],
+    };
+    let dir2 = Directory {
+        teams: vec![
+            Team {
+                name: "team-new-z".to_string(),
+                ..Default::default()
+            },
+            Team {
+                name: "team-new-a".to_string(),
+                ..Default::default()
+            },
+            Team {
+                name: "team-shared-b".to_string(),
+                maintainers: vec!["m-b".to_string()],
+                members: vec!["u-b".to_string()],
+                ..Default::default()
+            },
+            Team {
+                name: "team-shared-a".to_string(),
+                maintainers: vec!["m2".to_string(), "m1".to_string()],
+                ..Default::default()
+            },
+        ],
+        users: vec![
+            User {
+                full_name: "User New Z".to_string(),
+                ..Default::default()
+            },
+            User {
+                full_name: "User New A".to_string(),
+                ..Default::default()
+            },
+        ],
+    };
+
+    // Check every section is emitted in deterministic sorted order
+    assert_eq!(
+        dir1.diff(&dir2),
+        vec![
+            DirectoryChange::TeamRemoved("team-a".to_string()),
+            DirectoryChange::TeamRemoved("team-z".to_string()),
+            DirectoryChange::TeamAdded(Team {
+                name: "team-new-a".to_string(),
+                ..Default::default()
+            }),
+            DirectoryChange::TeamAdded(Team {
+                name: "team-new-z".to_string(),
+                ..Default::default()
+            }),
+            DirectoryChange::TeamMaintainerAdded("team-shared-a".to_string(), "m1".to_string()),
+            DirectoryChange::TeamMaintainerAdded("team-shared-a".to_string(), "m2".to_string()),
+            DirectoryChange::TeamMaintainerRemoved("team-shared-b".to_string(), "m-a".to_string()),
+            DirectoryChange::TeamMaintainerRemoved("team-shared-b".to_string(), "m-z".to_string()),
+            DirectoryChange::TeamMemberRemoved("team-shared-b".to_string(), "u-a".to_string()),
+            DirectoryChange::TeamMemberRemoved("team-shared-b".to_string(), "u-z".to_string()),
+            DirectoryChange::TeamMaintainerAdded("team-shared-b".to_string(), "m-b".to_string()),
+            DirectoryChange::TeamMemberAdded("team-shared-b".to_string(), "u-b".to_string()),
+            DirectoryChange::UserRemoved("User A".to_string()),
+            DirectoryChange::UserRemoved("User Z".to_string()),
+            DirectoryChange::UserAdded("User New A".to_string()),
+            DirectoryChange::UserAdded("User New Z".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn test_diff_team_added() {
     // Setup a new team with users
     let team1 = sample_team();

@@ -3,11 +3,15 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use as_any::AsAny;
 use async_trait::async_trait;
+use tokio_util::sync::CancellationToken;
 
-use crate::{cfg::Organization, github::Source};
+use crate::{
+    cfg::Organization,
+    github::{CachingGH, DynGH, Source},
+};
 
 pub mod github;
 
@@ -19,15 +23,73 @@ pub type ServiceName = &'static str;
 pub trait ServiceHandler {
     /// Return a summary of the changes detected in the service's state as
     /// defined in the configuration from the base to the head reference.
-    async fn get_changes_summary(&self, org: &Organization, head_src: &Source) -> Result<ChangesSummary>;
+    async fn get_changes_summary(
+        &self,
+        org: &Organization,
+        head_src: &Source,
+        job_ctx: &JobContext,
+    ) -> Result<ChangesSummary>;
 
     /// Apply the changes needed so that the actual state (as defined in the
     /// service) matches the desired state (as defined in the configuration).
-    async fn reconcile(&self, org: &Organization) -> Result<ChangesApplied>;
+    async fn reconcile(&self, org: &Organization, job_ctx: &JobContext) -> ReconcileOutcome;
 }
 
 /// Type alias to represent a service handler trait object.
 pub type DynServiceHandler = Arc<dyn ServiceHandler + Send + Sync>;
+
+/// Execution context scoped to a single validation or reconciliation job.
+#[derive(Clone)]
+pub struct JobContext {
+    /// Cancellation token firing on server shutdown or job deadline.
+    pub cancel_token: CancellationToken,
+    /// Per-job caching GitHub file reader shared across directory and services.
+    pub gh: DynGH,
+}
+
+impl JobContext {
+    /// Create a new job context wrapping `gh` in a per-job [`CachingGH`].
+    #[must_use]
+    pub fn new(gh: DynGH, cancel_token: CancellationToken) -> Self {
+        Self {
+            gh: Arc::new(CachingGH::new(gh, cancel_token.clone())),
+            cancel_token,
+        }
+    }
+}
+
+/// Outcome of reconciling a single service. Preserves any changes already
+/// applied even when reconciliation stops early due to rate limits or
+/// cancellation.
+#[derive(Debug, Default)]
+pub struct ReconcileOutcome {
+    /// Changes applied before reconciliation finished or stopped early.
+    pub changes_applied: ChangesApplied,
+
+    /// Optional top-level error when reconciliation failed or stopped early.
+    pub error: Option<Error>,
+}
+
+impl ReconcileOutcome {
+    /// Create an outcome representing a failure before any changes were applied.
+    #[must_use]
+    pub fn failed(error: Error) -> Self {
+        Self {
+            changes_applied: vec![],
+            error: Some(error),
+        }
+    }
+
+    /// Create an outcome representing a completed reconciliation with no
+    /// top-level service error.
+    #[must_use]
+    pub fn ok(changes_applied: ChangesApplied) -> Self {
+        Self {
+            changes_applied,
+            error: None,
+        }
+    }
+}
 
 /// Represents a summary of changes detected in the service's state as defined
 /// in the configuration from the base to the head reference.
